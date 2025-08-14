@@ -180,14 +180,13 @@ const COMPANY_PASSWORDS = {
   "MERCATTO DELÍCIA": "mercatto#2025",
   "DELÍCIA GOURMET": "delicia#2025",
   "VILLA GOURMET": "villa#2025",
-  "M.KIDS": "mkids#2025",
+  "M. KIDS": "mkids#2025",
   "PADARIA DELÍCIA": "padaria#2025"
 };
 
 const ENDPOINTS = {
-  // Seu Apps Script que lê a aba "Metas"
   METAS: "https://script.google.com/macros/s/AKfycbx3xmZeDxBLzCtZx7HnlIlJlhtTVqVNXugToptqxv1alhN2xSJpw-7TJrjzsL7DgtBg/exec",
-  VENDAS_DIA: "https://script.google.com/macros/s/AKfycbyA6WMaRLtjty7m3uEmwMHU2Alwq8k0nE5Ubk6VLPBYgh7JJ-wsd99avrJpot1-dDnN/exec",     
+  VENDAS_DIA: "https://script.google.com/macros/s/AKfycbyA6WMaRLtjty7m3uEmwMHU2Alwq8k0nE5Ubk6VLPBYgh7JJ-wsd99avrJpot1-dDnN/exec",
   CANCELAMENTOS: "https://script.google.com/macros/s/AKfycbzM1mmixFkFE5tbC-0Evc6GVyZEJkh88HCikNK08FujRwCrgUA1e_E29nMHip81kRPoSg/exec",
   TRAVAS: ""          
 };
@@ -196,8 +195,7 @@ const CURRENCY = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BR
 
 /********************** ESTADO *************************/
 const state = { empresa:null, periodo:{inicio:null,fim:null}, data:{ metas:null, vendasDia:null, cancelamentos:null, travas:null } };
-// >>> NOVO: flag para usar a ÚLTIMA DATA apenas no primeiro carregamento <<<
-let _vendasPrimeiroCarregamento = true;
+let _vendasPrimeiroCarregamento = true; // últimos 7 dias só no primeiro load
 
 /********************** UTIL *************************/
 const $ = (q)=>document.querySelector(q);
@@ -219,7 +217,7 @@ function parseBR(n){
   if(n==null || n==='') return 0;
   return Number(String(n).replace(/\s|R\$/g,'').replace(/\./g,'').replace(',', '.')) || 0;
 }
-/* >>> NOVO: formatador simples de data para dd/mm/aaaa <<< */
+/* formatador de data dd/mm/aaaa */
 function fmtBR(iso){
   if(!iso) return '';
   const d = new Date(iso+'T00:00:00');
@@ -240,6 +238,13 @@ function calcularPrevisaoMensal(periodoISO, realizadoAteHoje){
 const loginOverlay = $('#loginOverlay');
 const loadingOverlay = $('#loadingOverlay');
 $('#entrarBtn').addEventListener('click', ()=>doLogin());
+/* ENTER para logar */
+$('#senhaInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doLogin(); });
+$('#empresaSelect').addEventListener('keydown', (e)=>{ if(e.key==='Enter') doLogin(); });
+document.addEventListener('keydown', (e)=>{ 
+  if (loginOverlay.style.display !== 'none' && e.key === 'Enter') doLogin(); 
+});
+/* demais botões */
 $('#verEmpresas').addEventListener('click', ()=> alert('Empresas habilitadas: '+Object.keys(COMPANY_PASSWORDS).join(', ')) );
 $('#btnSair').addEventListener('click', ()=>{ loginOverlay.style.display='flex'; state.empresa=null; setBadgeEmpresa('—'); });
 
@@ -253,7 +258,6 @@ async function doLogin(){
   loginOverlay.style.display='none';
   $('#dtInicio').value = todayISO(); $('#dtFim').value = todayISO();
 
-  // mostra bolinha e carrega
   loadingOverlay.style.display='flex';
   try { await refreshAll(); } 
   finally { loadingOverlay.style.display='none'; }
@@ -295,7 +299,6 @@ function normalizeMetasPayload(raw){
     Realizado: parseBR(r?.Realizado ?? r?.realizado),
   }));
 }
-// Filtra pela empresa e pega SOMENTE a maior Data válida (ignora "1969-12-31")
 function pickUltimaMeta(records, empresa){
   const validos = records.filter(r =>
     r.Empresa === empresa &&
@@ -313,48 +316,60 @@ async function refreshAll(){
   if(!state.empresa) return;
   state.periodo.inicio = $('#dtInicio').value; state.periodo.fim = $('#dtFim').value;
 
-  // 1) tenta o endpoint já filtrado por empresa e última data
+  // METAS
   let metasPacked = null;
   try{
     const urlUltima = buildURL(ENDPOINTS.METAS, { empresa: state.empresa, ultima: 'true' });
     metasPacked = await safeFetch(urlUltima);
   }catch(e){ metasPacked = null; }
-
-  // 2) fallback: busca bruto
   if(!metasPacked || (Array.isArray(metasPacked) && metasPacked.length===0) || (Array.isArray(metasPacked?.data) && metasPacked.data.length===0)){
     try{ metasPacked = await safeFetch(ENDPOINTS.METAS); }catch(e){ metasPacked = []; }
   }
-
   const metasArr = normalizeMetasPayload(metasPacked);
   const metas = pickUltimaMeta(metasArr, state.empresa);
 
-  // VENDAS_DIA usa a ÚLTIMA DATA só no primeiro carregamento
+  // VENDAS POR DIA
   let vendasDia = null;
   if (ENDPOINTS.VENDAS_DIA) {
     try {
+      // pega série completa e filtra no front
+      const serie = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa }));
+      const arr = Array.isArray(serie) ? serie : (Array.isArray(serie?.data) ? serie.data : []);
+      // normaliza: [{dataISO, total}]
+      const norm = arr.map(r => ({ 
+        dataISO: (r?.data || r?.Data || '').slice(0,10), 
+        total: Number(r?.total ?? r?.Total ?? r?.valor ?? 0)
+      })).filter(x => x.dataISO);
+
+      norm.sort((a,b)=> a.dataISO.localeCompare(b.dataISO));
+
+      let janela = [];
       if (_vendasPrimeiroCarregamento) {
-        const serie = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa }));
-        const arr = Array.isArray(serie) ? serie : (Array.isArray(serie?.data) ? serie.data : []);
-        let last = null;
-        for (const r of arr) {
-          const d = (r?.data || r?.Data || '').slice(0,10);
-          if (d && (!last || d > last)) last = d;
-        }
-        if (last) {
-          vendasDia = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, data: last }));
-        } else {
-          vendasDia = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim }));
-        }
+        janela = norm.slice(-7); // últimos 7 dias
         _vendasPrimeiroCarregamento = false;
       } else {
-        vendasDia = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim }));
+        const ini = state.periodo.inicio || '0000-01-01';
+        const fi  = state.periodo.fim    || '9999-12-31';
+        janela = norm.filter(x => x.dataISO >= ini && x.dataISO <= fi);
       }
+
+      const labels = janela.map(x => fmtBR(x.dataISO));
+      const valores = janela.map(x => x.total);
+      const inicio = janela[0]?.dataISO || '';
+      const fim    = janela[janela.length-1]?.dataISO || inicio;
+
+      vendasDia = {
+        inicio, fim,
+        totalHoje: valores.reduce((a,b)=>a+b,0),
+        labels, valores
+      };
     } catch (e) {
       vendasDia = null;
       _vendasPrimeiroCarregamento = false;
     }
   }
 
+  // cancelamentos/travas (inalterados, se houver)
   const [cancelamentos, travas] = await Promise.all([
     ENDPOINTS.CANCELAMENTOS ? safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
     ENDPOINTS.TRAVAS ? safeFetch(buildURL(ENDPOINTS.TRAVAS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
@@ -371,9 +386,9 @@ async function refreshAll(){
 /********************** RENDER – METAS (com PREVISÃO) *************************/
 let chartMetas;
 function renderMetas(data){
-  const meta = data?.metaMensal ?? 0;       // Previsto
-  const realizado = data?.realizado ?? 0;   // Realizado
-  const periodo = data?.periodo ?? "-";     // yyyy-mm-dd
+  const meta = data?.metaMensal ?? 0;
+  const realizado = data?.realizado ?? 0;
+  const periodo = data?.periodo ?? "-";
 
   const previsao = calcularPrevisaoMensal(periodo, realizado);
 
@@ -407,13 +422,13 @@ function renderMetas(data){
   }
 }
 
-/********************** RENDER – VENDAS DO DIA *************************/
+/********************** RENDER – VENDAS POR DIA *************************/
 let chartDia;
 function renderVendasDia(data){
-  const totalHoje = data?.totalHoje ?? 0;
-  $('#kpiDia').textContent = CURRENCY.format(totalHoje);
+  const totalPeriodo = data?.totalHoje ?? 0;
+  $('#kpiDia').textContent = CURRENCY.format(totalPeriodo);
 
-  // >>> ÚNICA ALTERAÇÃO AQUI: mostrar a data/período abaixo do valor <<<
+  // Sub: data única ou período
   let sub = '—';
   if (data?.data) {
     sub = `Data ${fmtBR(data.data)}`;
@@ -421,15 +436,13 @@ function renderVendasDia(data){
     const i = data.inicio ? fmtBR(data.inicio) : '—';
     const f = data.fim ? fmtBR(data.fim) : '—';
     sub = `Período ${i} a ${f}`;
-  } else if (state.periodo?.inicio || state.periodo?.fim) {
-    sub = `Período ${fmtBR(state.periodo.inicio)} a ${fmtBR(state.periodo.fim)}`;
   }
   $('#kpiDiaSub').textContent = sub;
 
-  const labels = data?.horas ?? ['08h','10h','12h','14h','16h','18h'];
-  const valores = data?.valores ?? [0,0,0,0,0,0];
+  const labels = data?.labels ?? [];
+  const valores = data?.valores ?? [];
   const ctx = document.getElementById('chartDia');
-  const ds = { labels, datasets:[{ label:'R$ por hora', data: valores, tension:.3, fill:true, borderWidth:2, borderColor:'#7cb8ff', backgroundColor:'rgba(124,184,255,.18)' }] };
+  const ds = { labels, datasets:[{ label:'R$ por dia', data: valores, tension:.3, fill:true, borderWidth:2, borderColor:'#7cb8ff', backgroundColor:'rgba(124,184,255,.18)' }] };
   if(chartDia){ chartDia.data = ds; chartDia.update(); }
   else { chartDia = new Chart(ctx, { type:'line', data: ds, options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } } }); }
 }
