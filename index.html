@@ -43,8 +43,6 @@
     .ok{background:rgba(119,224,181,.15);color:#b8fbe2;border:1px solid rgba(119,224,181,.3)}
     .bad{background:rgba(255,107,107,.15);color:#ffd0d0;border:1px solid rgba(255,107,107,.35)}
     .neutral{background:rgba(124,184,255,.15);color:#dcebff;border:1px solid rgba(124,184,255,.3)}
-
-    /* Login overlay */
     .overlay{position:fixed;inset:0;background:radial-gradient(1200px 600px at 70% -10%,rgba(76,133,255,.25),transparent 60%),
                                    radial-gradient(1000px 600px at -10% 40%,rgba(119,224,181,.15),transparent 60%),
                                    #0b1020f2;display:flex;align-items:center;justify-content:center;z-index:99}
@@ -57,7 +55,6 @@
     .lock{display:inline-flex;width:36px;height:36px;border-radius:12px;align-items:center;justify-content:center;background:rgba(255,255,255,.06);margin-right:8px}
     .notice{font-size:12px;color:var(--muted)}
     .err{color:#ffd0d0}
-
     @media (max-width: 980px){
       .grid{grid-template-columns:1fr}
       .kpis{grid-template-columns:repeat(2,1fr)}
@@ -123,19 +120,16 @@
     </section>
 
     <div class="grid" style="margin-top:14px">
-      <!-- Metas x Realizado -->
       <section class="card panel section">
         <h3>1) Metas de Vendas</h3>
         <canvas id="chartMetas" height="140"></canvas>
       </section>
 
-      <!-- Vendas do Dia -->
       <section class="card panel section">
         <h3>2) Vendas do Dia</h3>
         <canvas id="chartDia" height="140"></canvas>
       </section>
 
-      <!-- Cancelamentos -->
       <section class="card panel section">
         <h3>3) Cancelamentos</h3>
         <div class="row" style="gap:16px;align-items:flex-start">
@@ -151,7 +145,6 @@
         </div>
       </section>
 
-      <!-- Travas de Compras -->
       <section class="card panel section">
         <h3>4) Travas de Compras</h3>
         <div id="travasWrap" class="row" style="flex-direction:column;align-items:stretch;gap:12px"></div>
@@ -165,8 +158,7 @@
   </div>
 
 <script>
-/********************** CONFIGURAÇÕES *************************/
-// 1) Senhas por empresa (edite conforme desejar)
+/********************** CONFIG *************************/
 const COMPANY_PASSWORDS = {
   "MERCATTO DELÍCIA": "mercatto#2025",
   "DELICIA GOURMET": "delicia#2025",
@@ -175,38 +167,26 @@ const COMPANY_PASSWORDS = {
   "PADARIA DELÍCIA": "padaria#2025"
 };
 
-// 2) Endpoints (preencha os que já possui)
 const ENDPOINTS = {
-  METAS: "https://script.google.com/macros/s/AKfycbziCPWWJxxfrnSeT3RHsNbw21z9MfnnB8JpV7ZQcZnvUQQ7dL3lVJdpUG7epACVjFaO/exec",
+  // METAS: retorna um ARRAY com {Data, Empresa, Previsto, Realizado}
+  METAS: "https://script.google.com/macros/s/AKfycbzyiL6yNCj_FYWiQ2PS88mthToCvWM1wJ0q7CQy8asyg-59L8YezKzFY6d-lgQU0ni3/exec",
+  // Preencha se quiser usar:
+  VENDAS_DIA: "",     // ?empresa=&inicio=&fim=
   CANCELAMENTOS: "https://script.google.com/macros/s/AKfycbzM1mmixFkFE5tbC-0Evc6GVyZEJkh88HCikNK08FujRwCrgUA1e_E29nMHip81kRPoSg/exec",
-  VENDAS_DIA: "", // TODO: preencha seu endpoint de vendas do dia (GET): ?empresa= &inicio= &fim=
-  TRAVAS: ""      // TODO: preencha seu endpoint de travas (GET): ?empresa= &inicio= &fim=
+  TRAVAS: ""          // ?empresa=&inicio=&fim=
 };
 
-// 3) Preferências
 const CURRENCY = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL' });
 
-/********************** ESTADO GLOBAL *************************/
-const state = {
-  empresa: null,
-  periodo: { inicio: null, fim: null },
-  data: { metas:null, vendasDia:null, cancelamentos:null, travas:null }
-};
+/********************** ESTADO *************************/
+const state = { empresa:null, periodo:{inicio:null,fim:null}, data:{ metas:null, vendasDia:null, cancelamentos:null, travas:null } };
 
 /********************** UTIL *************************/
 const $ = (q)=>document.querySelector(q);
-function setBadgeEmpresa(name){
-  const b = $('#empresaBadge');
-  b.textContent = name ? name : '—';
-}
-function todayISO(){
-  const d = new Date();
-  return d.toISOString().slice(0,10);
-}
+function setBadgeEmpresa(name){ $('#empresaBadge').textContent = name || '—' }
+function todayISO(){ return new Date().toISOString().slice(0,10) }
 function buildURL(base, params){
-  const u = new URL(base);
-  Object.entries(params||{}).forEach(([k,v])=>{ if(v!==undefined && v!==null && v!=='' ) u.searchParams.set(k,v) });
-  return u.toString();
+  const u = new URL(base); Object.entries(params||{}).forEach(([k,v])=>{ if(v!==undefined && v!==null && v!=='') u.searchParams.set(k,v) }); return u.toString();
 }
 async function safeFetch(url){
   const res = await fetch(url, { headers: { 'Content-Type':'application/json' } });
@@ -215,15 +195,13 @@ async function safeFetch(url){
 }
 function pct(num, den){ return den>0 ? (num/den)*100 : 0 }
 function clamp(n, min, max){ return Math.max(min, Math.min(max, n)) }
-function barHTML(label, value, max, color){
+function barHTML(label, value, max){
   const p = clamp(pct(value,max),0,200).toFixed(1);
   const theme = p>100? 'background:linear-gradient(90deg,var(--danger),#ff9a9a)' : 'background:linear-gradient(90deg,#7cb8ff,#77e0b5)';
   return `<div class="row" style="justify-content:space-between"><div>${label}</div><div><b>${CURRENCY.format(value)}</b> / ${CURRENCY.format(max)} — <span class="pill ${p>100?'bad':'ok'}">${p}%</span></div></div>
           <div class="progress"><i style="width:${Math.min(p,100)}%;${theme}"></i></div>`
 }
-function toCSV(rows){
-  return rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n')
-}
+function toCSV(rows){ return rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n') }
 
 /********************** LOGIN *************************/
 const overlay = $('#loginOverlay');
@@ -237,60 +215,78 @@ function doLogin(){
   const ok = COMPANY_PASSWORDS[emp] && COMPANY_PASSWORDS[emp]===pw;
   if(!ok){ $('#loginErr').style.display='block'; return }
   $('#loginErr').style.display='none';
-  state.empresa = emp;
-  setBadgeEmpresa(emp);
+  state.empresa = emp; setBadgeEmpresa(emp);
   overlay.style.display='none';
-  // Bloqueia seleção de empresa (fixo à sessão)
-  // Aqui, se quiser, você pode esconder filtros de empresa (não há seletor visível por design)
-  // Define período padrão = hoje
-  $('#dtInicio').value = todayISO();
-  $('#dtFim').value = todayISO();
+  $('#dtInicio').value = todayISO(); $('#dtFim').value = todayISO();
   refreshAll();
 }
 
 /********************** INTERAÇÕES *************************/
 $('#btnHoje').addEventListener('click', ()=>{ $('#dtInicio').value=todayISO(); $('#dtFim').value=todayISO(); refreshAll(); });
 $('#btnAtualizar').addEventListener('click', refreshAll);
-
 $('#btnCSV').addEventListener('click', ()=>{
   const rows = [
-    ['Empresa', state.empresa],
-    ['Início', state.periodo.inicio],
-    ['Fim', state.periodo.fim],
-    [],
+    ['Empresa', state.empresa], ['Início', state.periodo.inicio], ['Fim', state.periodo.fim], [],
     ['KPI','Valor','Obs'],
     ['Meta Mensal', $('#kpiMeta').textContent, $('#kpiMetaSub').textContent],
     ['Vendas do Dia', $('#kpiDia').textContent, $('#kpiDiaSub').textContent],
     ['Cancelamentos', $('#kpiCanc').textContent, $('#kpiCancSub').textContent],
     ['Travas de Compras', $('#kpiTrava').textContent, $('#kpiTravaSub').textContent],
   ];
-  const blob = new Blob([toCSV(rows)], {type:'text/csv;charset=utf-8;'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `painel_${(state.empresa||'empresa').replaceAll(' ','_')}.csv`;
-  a.click();
+  const blob = new Blob([toCSV(rows)], {type:'text/csv;charset=utf-8;'}); const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `painel_${(state.empresa||'empresa').replaceAll(' ','_')}.csv`; a.click();
 });
+$('#btnPDF').addEventListener('click', ()=>{ window.print(); });
 
-$('#btnPDF').addEventListener('click', ()=>{
-  window.print(); // Utilize o print-to-PDF do navegador
-});
+/********************** PARSE – METAS (formato do seu script) *************************/
+/*
+  Entrada (exatamente como no print do JSON):
+  [
+    {"Data":"2025-08-13","Empresa":"VILLA GOURMET","Previsto":700000,"Realizado":245913.49},
+    {"Data":"1969-12-31","Empresa":"","Previsto":"","Realizado":""},
+    ...
+  ]
+*/
+function pickUltimaMetaDoEndpoint(raw, empresa){
+  const rows = Array.isArray(raw) ? raw : [];
+
+  // 1) filtra por empresa e ignora linhas "vazias" e datas fake
+  const validos = rows.filter(r =>
+    r && r.Empresa === empresa &&
+    r.Data && r.Data !== "1969-12-31" &&
+    r.Previsto !== "" && r.Realizado !== "" &&
+    r.Previsto != null && r.Realizado != null
+  );
+
+  if (!validos.length) return { metaMensal: 0, realizado: 0, periodo: "-" };
+
+  // 2) pega a maior data (como yyyy-mm-dd a comparação de string funciona)
+  const ultimaData = validos.reduce((max, r) => r.Data > max ? r.Data : max, validos[0].Data);
+
+  // 3) pega o registro dessa última data
+  const rec = validos.find(r => r.Data === ultimaData) || validos[validos.length - 1];
+
+  return {
+    metaMensal: Number(rec.Previsto) || 0,
+    realizado: Number(rec.Realizado) || 0,
+    periodo: ultimaData
+  };
+}
 
 /********************** BUSCA DE DADOS *************************/
 async function refreshAll(){
   if(!state.empresa) return;
   state.periodo.inicio = $('#dtInicio').value; state.periodo.fim = $('#dtFim').value;
-  const { empresa, periodo } = state;
-  const params = { empresa, inicio: periodo.inicio, fim: periodo.fim };
 
-  // Carrega tudo em paralelo
-  const tasks = [
-    ENDPOINTS.METAS ? safeFetch(buildURL(ENDPOINTS.METAS, params)).catch(()=>null) : Promise.resolve(null),
-    ENDPOINTS.VENDAS_DIA ? safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, params)).catch(()=>null) : Promise.resolve(null),
-    ENDPOINTS.CANCELAMENTOS ? safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, params)).catch(()=>null) : Promise.resolve(null),
-    ENDPOINTS.TRAVAS ? safeFetch(buildURL(ENDPOINTS.TRAVAS, params)).catch(()=>null) : Promise.resolve(null),
-  ];
+  const [metasRaw, vendasDia, cancelamentos, travas] = await Promise.all([
+    ENDPOINTS.METAS ? safeFetch(ENDPOINTS.METAS).catch(()=>null) : Promise.resolve(null),
+    ENDPOINTS.VENDAS_DIA ? safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
+    ENDPOINTS.CANCELAMENTOS ? safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
+    ENDPOINTS.TRAVAS ? safeFetch(buildURL(ENDPOINTS.TRAVAS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
+  ]);
 
-  const [metas, vendasDia, cancelamentos, travas] = await Promise.all(tasks);
+  const metas = pickUltimaMetaDoEndpoint(metasRaw, state.empresa);
+
   state.data = { metas, vendasDia, cancelamentos, travas };
 
   renderMetas(metas);
@@ -302,16 +298,17 @@ async function refreshAll(){
 /********************** RENDER – METAS *************************/
 let chartMetas;
 function renderMetas(data){
-  // Esperado: { metaMensal: number, realizado: number, produtosTop: [{nome, valor}], periodo: '2025-08' }
   const meta = data?.metaMensal ?? 0;
   const realizado = data?.realizado ?? 0;
+  const periodo = data?.periodo ?? "-";
+
   $('#kpiMeta').textContent = CURRENCY.format(realizado);
   const p = pct(realizado, meta);
-  $('#kpiMetaSub').innerHTML = `${CURRENCY.format(realizado)} de ${CURRENCY.format(meta)} — <span class="pill ${p>=100?'ok':p>=80?'neutral':'bad'}">${p.toFixed(1)}%</span>`;
+  $('#kpiMetaSub').innerHTML = `${periodo} — ${CURRENCY.format(realizado)} de ${CURRENCY.format(meta)} — <span class="pill ${p>=100?'ok':p>=80?'neutral':'bad'}">${p.toFixed(1)}%</span>`;
 
   const ctx = document.getElementById('chartMetas');
   const ds = {
-    labels:['Meta Mensal','Realizado'],
+    labels:['Previsto (última data)','Realizado (última data)'],
     datasets:[{ label:'R$', data:[meta, realizado], borderWidth:2, backgroundColor:['#1b2652','#77e0b5'], borderColor:'#88f0d4'}]
   };
   if(chartMetas){ chartMetas.data = ds; chartMetas.update(); }
@@ -321,11 +318,10 @@ function renderMetas(data){
 /********************** RENDER – VENDAS DO DIA *************************/
 let chartDia;
 function renderVendasDia(data){
-  // Esperado: { totalHoje:number, ticketMedio:number, horas:["08h","09h",...], valores:[n,n,...] }
   const totalHoje = data?.totalHoje ?? 0;
   const ticket = data?.ticketMedio ?? 0;
   $('#kpiDia').textContent = CURRENCY.format(totalHoje);
-  $('#kpiDiaSub').textContent = `Ticket médio ${CURRENCY.format(ticket)}`;
+  $('#kpiDiaSub').textContent = ticket ? `Ticket médio ${CURRENCY.format(ticket)}` : '—';
 
   const labels = data?.horas ?? ['08h','10h','12h','14h','16h','18h'];
   const valores = data?.valores ?? [0,0,0,0,0,0];
@@ -338,14 +334,12 @@ function renderVendasDia(data){
 /********************** RENDER – CANCELAMENTOS *************************/
 let chartCanc;
 function renderCancelamentos(data){
-  // Esperado: { total:number, itens:[{nome, qtde, total}], motivos:[{motivo, valor}] }
   const total = data?.total ?? 0;
   $('#kpiCanc').textContent = CURRENCY.format(total);
-  const totalVendas = state.data?.metas?.realizado ?? 0; // se tiver
+  const totalVendas = state.data?.metas?.realizado ?? 0;
   const pc = pct(total, totalVendas);
   $('#kpiCancSub').innerHTML = `${CURRENCY.format(total)} no período — <span class="pill ${pc<3?'ok':pc<8?'neutral':'bad'}">${pc.toFixed(1)}%</span>`;
 
-  // Pizza por motivo
   const labels = (data?.motivos||[]).map(m=>m.motivo);
   const valores = (data?.motivos||[]).map(m=>m.valor);
   const ctx = document.getElementById('chartCanc');
@@ -353,7 +347,6 @@ function renderCancelamentos(data){
   if(chartCanc){ chartCanc.data = ds; chartCanc.update(); }
   else { chartCanc = new Chart(ctx, { type:'doughnut', data: ds, options:{ responsive:true, plugins:{ legend:{position:'bottom'} } } }); }
 
-  // Tabela de itens cancelados
   const tbody = document.querySelector('#tblCanc tbody');
   tbody.innerHTML='';
   (data?.itens||[]).forEach(it=>{
@@ -365,7 +358,6 @@ function renderCancelamentos(data){
 
 /********************** RENDER – TRAVAS *************************/
 function renderTravas(data){
-  // Esperado: { travaTotal:number, gastoGeral:number, travaFornec:number, gastoFornec:number, detalhado?:[{label,max,valor}] }
   const travaTotal = data?.travaTotal ?? 0;
   const gastoGeral = data?.gastoGeral ?? 0;
   const travaFor = data?.travaFornec ?? 0;
@@ -373,23 +365,23 @@ function renderTravas(data){
 
   const wrap = document.getElementById('travasWrap');
   wrap.innerHTML = '';
-  wrap.insertAdjacentHTML('beforeend', barHTML('Trava Total de Pagamentos', gastoGeral, travaTotal));
-  wrap.insertAdjacentHTML('beforeend', barHTML('Trava Fornecedores', gastoFor, travaFor));
+  if(travaTotal || gastoGeral){
+    wrap.insertAdjacentHTML('beforeend', barHTML('Trava Total de Pagamentos', gastoGeral, travaTotal));
+    wrap.insertAdjacentHTML('beforeend', barHTML('Trava Fornecedores', gastoFor, travaFor));
+  }else{
+    wrap.innerHTML = '<div class="badge">Sem dados de travas para o período.</div>';
+  }
 
   $('#kpiTrava').textContent = CURRENCY.format(gastoGeral);
   const p = pct(gastoGeral, travaTotal);
-  $('#kpiTravaSub').innerHTML = `${CURRENCY.format(gastoGeral)} de ${CURRENCY.format(travaTotal)} — <span class="pill ${p>100?'bad':p>80?'neutral':'ok'}">${p.toFixed(1)}%</span>`;
-
-  (data?.detalhado||[]).forEach(d=>{
-    wrap.insertAdjacentHTML('beforeend', barHTML(d.label, d.valor, d.max));
-  });
+  $('#kpiTravaSub').innerHTML = (travaTotal>0)
+    ? `${CURRENCY.format(gastoGeral)} de ${CURRENCY.format(travaTotal)} — <span class="pill ${p>100?'bad':p>80?'neutral':'ok'}">${p.toFixed(1)}%</span>`
+    : '—';
 }
 
 /********************** INICIALIZAÇÃO *************************/
 window.addEventListener('load', ()=>{
-  // Inicial
-  $('#dtInicio').value = todayISO();
-  $('#dtFim').value = todayISO();
+  $('#dtInicio').value = todayISO(); $('#dtFim').value = todayISO();
 });
 </script>
 </body>
