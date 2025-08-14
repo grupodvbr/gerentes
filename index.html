@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Painel de Gerentes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#111834; --muted:#8ea0c7; --card:#0f1530; --accent:#77e0b5; --accent2:#7cb8ff; --warn:#ffb84d; --danger:#ff6b6b;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:#e9eeff;background:linear-gradient(180deg,#0b1020,#0b0f1c);} 
+    .wrap{max-width:1200px;margin:0 auto;padding:20px 16px 56px}
+    header{display:flex;gap:16px;align-items:center;justify-content:space-between;margin:8px 0 20px}
+    .title{font-weight:800;font-size:20px;letter-spacing:.2px}
+    .badge{padding:6px 10px;border-radius:999px;background:rgba(124,184,255,.15);color:#beddff;font-size:12px}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 30px rgba(0,0,0,.25);border-radius:16px}
+    .panel{padding:16px}
+    .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .kpi{padding:14px 14px;border-radius:16px;background:linear-gradient(180deg,#0f1530 0%, #0b122a 100%);border:1px solid rgba(255,255,255,.06)}
+    .kpi h4{margin:0 0 6px;font-size:12px;color:var(--muted);font-weight:600}
+    .kpi .val{font-weight:800;font-size:22px}
+    .kpi .sub{font-size:12px;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .section h3{margin:0 0 10px;font-size:14px;color:#cfe3ff;letter-spacing:.2px}
+    .btn{background:#1b2652;border:1px solid rgba(255,255,255,.12);color:#e9eeff;padding:10px 12px;border-radius:12px;font-weight:600;cursor:pointer}
+    .btn:hover{filter:brightness(1.05)}
+    .btn.primary{background:linear-gradient(90deg,#3e8eff,#6de2c8);color:#0b1020;border:none}
+    .btn.warn{background:linear-gradient(90deg,#ffb84d,#ff7f50);color:#1a1200;border:none}
+    .btn.ghost{background:transparent;border:1px dashed rgba(255,255,255,.2)}
+    .select, .input{background:#0e1431;color:#e9eeff;border:1px solid rgba(255,255,255,.12);padding:10px 12px;border-radius:10px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .progress{height:10px;border-radius:999px;background:#1b244b;overflow:hidden}
+    .progress>i{display:block;height:100%;background:linear-gradient(90deg,#7cb8ff,#77e0b5)}
+    .table{width:100%;border-collapse:collapse;font-size:12px}
+    .table th,.table td{padding:10px;border-bottom:1px solid rgba(255,255,255,.06);text-align:left}
+    .pill{padding:2px 8px;border-radius:999px;font-weight:700;font-size:11px}
+    .ok{background:rgba(119,224,181,.15);color:#b8fbe2;border:1px solid rgba(119,224,181,.3)}
+    .bad{background:rgba(255,107,107,.15);color:#ffd0d0;border:1px solid rgba(255,107,107,.35)}
+    .neutral{background:rgba(124,184,255,.15);color:#dcebff;border:1px solid rgba(124,184,255,.3)}
+
+    /* Login overlay */
+    .overlay{position:fixed;inset:0;background:radial-gradient(1200px 600px at 70% -10%,rgba(76,133,255,.25),transparent 60%),
+                                   radial-gradient(1000px 600px at -10% 40%,rgba(119,224,181,.15),transparent 60%),
+                                   #0b1020f2;display:flex;align-items:center;justify-content:center;z-index:99}
+    .login{width:min(520px,92vw);padding:24px;border-radius:18px}
+    .login h2{margin:6px 0 2px}
+    .login small{color:var(--muted)}
+    .login .field{display:grid;gap:8px;margin:10px 0}
+    .login .field label{font-size:12px;color:#cfe3ff}
+    .login .hint{font-size:11px;color:var(--muted)}
+    .lock{display:inline-flex;width:36px;height:36px;border-radius:12px;align-items:center;justify-content:center;background:rgba(255,255,255,.06);margin-right:8px}
+    .notice{font-size:12px;color:var(--muted)}
+    .err{color:#ffd0d0}
+
+    @media (max-width: 980px){
+      .grid{grid-template-columns:1fr}
+      .kpis{grid-template-columns:repeat(2,1fr)}
+    }
+  </style>
+</head>
+<body>
+  <!-- LOGIN POR EMPRESA -->
+  <div class="overlay" id="loginOverlay">
+    <div class="card login">
+      <div class="row"><span class="lock">🔒</span><div>
+        <div class="badge">Acesso restrito por empresa</div>
+        <h2>Entrar no Painel</h2>
+        <small>Selecione a empresa e digite a senha correspondente.</small>
+      </div></div>
+
+      <div class="field">
+        <label>Empresa</label>
+        <select class="select" id="empresaSelect">
+          <option value="">Selecione…</option>
+          <option>MERCATTO DELÍCIA</option>
+          <option>DELICIA GOURMET</option>
+          <option>VILLA GOURMET</option>
+          <option>M. KIDS</option>
+          <option>PADARIA DELÍCIA</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Senha</label>
+        <input id="senhaInput" class="input" type="password" placeholder="••••••••" />
+        <div class="hint">Dica: edite o mapa de senhas em <code>COMPANY_PASSWORDS</code> no topo do script.</div>
+        <div class="hint err" id="loginErr" style="display:none">Empresa ou senha inválidos.</div>
+      </div>
+      <div class="row" style="justify-content:space-between;margin-top:6px">
+        <button class="btn ghost" id="verEmpresas">Ver empresas habilitadas</button>
+        <button class="btn primary" id="entrarBtn">Entrar</button>
+      </div>
+      <p class="notice" style="margin-top:10px">⚠️ Este login é client-side e adequado para uso interno. Para alta segurança, configure validação de sessão no seu Google Apps Script.</p>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="title">📊 Painel de Gestão</div>
+        <div class="badge" id="empresaBadge">—</div>
+      </div>
+      <div class="toolbar">
+        <input type="date" class="input" id="dtInicio" />
+        <input type="date" class="input" id="dtFim" />
+        <button class="btn" id="btnHoje">Hoje</button>
+        <button class="btn primary" id="btnAtualizar">Atualizar</button>
+        <button class="btn warn" id="btnSair">Sair</button>
+      </div>
+    </header>
+
+    <!-- KPIs -->
+    <section class="kpis">
+      <div class="kpi"><h4>Meta Mensal</h4><div class="val" id="kpiMeta">—</div><div class="sub" id="kpiMetaSub">—</div></div>
+      <div class="kpi"><h4>Vendas do Dia</h4><div class="val" id="kpiDia">—</div><div class="sub" id="kpiDiaSub">—</div></div>
+      <div class="kpi"><h4>Cancelamentos</h4><div class="val" id="kpiCanc">—</div><div class="sub" id="kpiCancSub">—</div></div>
+      <div class="kpi"><h4>Travas de Compras</h4><div class="val" id="kpiTrava">—</div><div class="sub" id="kpiTravaSub">—</div></div>
+    </section>
+
+    <div class="grid" style="margin-top:14px">
+      <!-- Metas x Realizado -->
+      <section class="card panel section">
+        <h3>1) Metas de Vendas</h3>
+        <canvas id="chartMetas" height="140"></canvas>
+      </section>
+
+      <!-- Vendas do Dia -->
+      <section class="card panel section">
+        <h3>2) Vendas do Dia</h3>
+        <canvas id="chartDia" height="140"></canvas>
+      </section>
+
+      <!-- Cancelamentos -->
+      <section class="card panel section">
+        <h3>3) Cancelamentos</h3>
+        <div class="row" style="gap:16px;align-items:flex-start">
+          <div style="flex:1">
+            <canvas id="chartCanc" height="160"></canvas>
+          </div>
+          <div style="flex:1">
+            <table class="table" id="tblCanc">
+              <thead><tr><th>Item</th><th>Qtde</th><th>Total</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Travas de Compras -->
+      <section class="card panel section">
+        <h3>4) Travas de Compras</h3>
+        <div id="travasWrap" class="row" style="flex-direction:column;align-items:stretch;gap:12px"></div>
+      </section>
+    </div>
+
+    <div class="row" style="margin-top:16px;justify-content:flex-end">
+      <button class="btn" id="btnCSV">Exportar CSV</button>
+      <button class="btn" id="btnPDF">Exportar PDF</button>
+    </div>
+  </div>
+
+<script>
+/********************** CONFIGURAÇÕES *************************/
+// 1) Senhas por empresa (edite conforme desejar)
+const COMPANY_PASSWORDS = {
+  "MERCATTO DELÍCIA": "mercatto#2025",
+  "DELICIA GOURMET": "delicia#2025",
+  "VILLA GOURMET": "villa#2025",
+  "M. KIDS": "mkids#2025",
+  "PADARIA DELÍCIA": "padaria#2025"
+};
+
+// 2) Endpoints (preencha os que já possui)
+const ENDPOINTS = {
+  METAS: "https://script.google.com/macros/s/AKfycbziCPWWJxxfrnSeT3RHsNbw21z9MfnnB8JpV7ZQcZnvUQQ7dL3lVJdpUG7epACVjFaO/exec",
+  CANCELAMENTOS: "https://script.google.com/macros/s/AKfycbzM1mmixFkFE5tbC-0Evc6GVyZEJkh88HCikNK08FujRwCrgUA1e_E29nMHip81kRPoSg/exec",
+  VENDAS_DIA: "", // TODO: preencha seu endpoint de vendas do dia (GET): ?empresa= &inicio= &fim=
+  TRAVAS: ""      // TODO: preencha seu endpoint de travas (GET): ?empresa= &inicio= &fim=
+};
+
+// 3) Preferências
+const CURRENCY = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL' });
+
+/********************** ESTADO GLOBAL *************************/
+const state = {
+  empresa: null,
+  periodo: { inicio: null, fim: null },
+  data: { metas:null, vendasDia:null, cancelamentos:null, travas:null }
+};
+
+/********************** UTIL *************************/
+const $ = (q)=>document.querySelector(q);
+function setBadgeEmpresa(name){
+  const b = $('#empresaBadge');
+  b.textContent = name ? name : '—';
+}
+function todayISO(){
+  const d = new Date();
+  return d.toISOString().slice(0,10);
+}
+function buildURL(base, params){
+  const u = new URL(base);
+  Object.entries(params||{}).forEach(([k,v])=>{ if(v!==undefined && v!==null && v!=='' ) u.searchParams.set(k,v) });
+  return u.toString();
+}
+async function safeFetch(url){
+  const res = await fetch(url, { headers: { 'Content-Type':'application/json' } });
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  return res.json();
+}
+function pct(num, den){ return den>0 ? (num/den)*100 : 0 }
+function clamp(n, min, max){ return Math.max(min, Math.min(max, n)) }
+function barHTML(label, value, max, color){
+  const p = clamp(pct(value,max),0,200).toFixed(1);
+  const theme = p>100? 'background:linear-gradient(90deg,var(--danger),#ff9a9a)' : 'background:linear-gradient(90deg,#7cb8ff,#77e0b5)';
+  return `<div class="row" style="justify-content:space-between"><div>${label}</div><div><b>${CURRENCY.format(value)}</b> / ${CURRENCY.format(max)} — <span class="pill ${p>100?'bad':'ok'}">${p}%</span></div></div>
+          <div class="progress"><i style="width:${Math.min(p,100)}%;${theme}"></i></div>`
+}
+function toCSV(rows){
+  return rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n')
+}
+
+/********************** LOGIN *************************/
+const overlay = $('#loginOverlay');
+$('#entrarBtn').addEventListener('click', doLogin);
+$('#verEmpresas').addEventListener('click', ()=> alert('Empresas habilitadas: '+Object.keys(COMPANY_PASSWORDS).join(', ')) );
+$('#btnSair').addEventListener('click', ()=>{ overlay.style.display='flex'; state.empresa=null; setBadgeEmpresa('—'); });
+
+function doLogin(){
+  const emp = $('#empresaSelect').value.trim();
+  const pw = $('#senhaInput').value;
+  const ok = COMPANY_PASSWORDS[emp] && COMPANY_PASSWORDS[emp]===pw;
+  if(!ok){ $('#loginErr').style.display='block'; return }
+  $('#loginErr').style.display='none';
+  state.empresa = emp;
+  setBadgeEmpresa(emp);
+  overlay.style.display='none';
+  // Bloqueia seleção de empresa (fixo à sessão)
+  // Aqui, se quiser, você pode esconder filtros de empresa (não há seletor visível por design)
+  // Define período padrão = hoje
+  $('#dtInicio').value = todayISO();
+  $('#dtFim').value = todayISO();
+  refreshAll();
+}
+
+/********************** INTERAÇÕES *************************/
+$('#btnHoje').addEventListener('click', ()=>{ $('#dtInicio').value=todayISO(); $('#dtFim').value=todayISO(); refreshAll(); });
+$('#btnAtualizar').addEventListener('click', refreshAll);
+
+$('#btnCSV').addEventListener('click', ()=>{
+  const rows = [
+    ['Empresa', state.empresa],
+    ['Início', state.periodo.inicio],
+    ['Fim', state.periodo.fim],
+    [],
+    ['KPI','Valor','Obs'],
+    ['Meta Mensal', $('#kpiMeta').textContent, $('#kpiMetaSub').textContent],
+    ['Vendas do Dia', $('#kpiDia').textContent, $('#kpiDiaSub').textContent],
+    ['Cancelamentos', $('#kpiCanc').textContent, $('#kpiCancSub').textContent],
+    ['Travas de Compras', $('#kpiTrava').textContent, $('#kpiTravaSub').textContent],
+  ];
+  const blob = new Blob([toCSV(rows)], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `painel_${(state.empresa||'empresa').replaceAll(' ','_')}.csv`;
+  a.click();
+});
+
+$('#btnPDF').addEventListener('click', ()=>{
+  window.print(); // Utilize o print-to-PDF do navegador
+});
+
+/********************** BUSCA DE DADOS *************************/
+async function refreshAll(){
+  if(!state.empresa) return;
+  state.periodo.inicio = $('#dtInicio').value; state.periodo.fim = $('#dtFim').value;
+  const { empresa, periodo } = state;
+  const params = { empresa, inicio: periodo.inicio, fim: periodo.fim };
+
+  // Carrega tudo em paralelo
+  const tasks = [
+    ENDPOINTS.METAS ? safeFetch(buildURL(ENDPOINTS.METAS, params)).catch(()=>null) : Promise.resolve(null),
+    ENDPOINTS.VENDAS_DIA ? safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, params)).catch(()=>null) : Promise.resolve(null),
+    ENDPOINTS.CANCELAMENTOS ? safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, params)).catch(()=>null) : Promise.resolve(null),
+    ENDPOINTS.TRAVAS ? safeFetch(buildURL(ENDPOINTS.TRAVAS, params)).catch(()=>null) : Promise.resolve(null),
+  ];
+
+  const [metas, vendasDia, cancelamentos, travas] = await Promise.all(tasks);
+  state.data = { metas, vendasDia, cancelamentos, travas };
+
+  renderMetas(metas);
+  renderVendasDia(vendasDia);
+  renderCancelamentos(cancelamentos);
+  renderTravas(travas);
+}
+
+/********************** RENDER – METAS *************************/
+let chartMetas;
+function renderMetas(data){
+  // Esperado: { metaMensal: number, realizado: number, produtosTop: [{nome, valor}], periodo: '2025-08' }
+  const meta = data?.metaMensal ?? 0;
+  const realizado = data?.realizado ?? 0;
+  $('#kpiMeta').textContent = CURRENCY.format(realizado);
+  const p = pct(realizado, meta);
+  $('#kpiMetaSub').innerHTML = `${CURRENCY.format(realizado)} de ${CURRENCY.format(meta)} — <span class="pill ${p>=100?'ok':p>=80?'neutral':'bad'}">${p.toFixed(1)}%</span>`;
+
+  const ctx = document.getElementById('chartMetas');
+  const ds = {
+    labels:['Meta Mensal','Realizado'],
+    datasets:[{ label:'R$', data:[meta, realizado], borderWidth:2, backgroundColor:['#1b2652','#77e0b5'], borderColor:'#88f0d4'}]
+  };
+  if(chartMetas){ chartMetas.data = ds; chartMetas.update(); }
+  else { chartMetas = new Chart(ctx, { type:'bar', data: ds, options: { responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } } }); }
+}
+
+/********************** RENDER – VENDAS DO DIA *************************/
+let chartDia;
+function renderVendasDia(data){
+  // Esperado: { totalHoje:number, ticketMedio:number, horas:["08h","09h",...], valores:[n,n,...] }
+  const totalHoje = data?.totalHoje ?? 0;
+  const ticket = data?.ticketMedio ?? 0;
+  $('#kpiDia').textContent = CURRENCY.format(totalHoje);
+  $('#kpiDiaSub').textContent = `Ticket médio ${CURRENCY.format(ticket)}`;
+
+  const labels = data?.horas ?? ['08h','10h','12h','14h','16h','18h'];
+  const valores = data?.valores ?? [0,0,0,0,0,0];
+  const ctx = document.getElementById('chartDia');
+  const ds = { labels, datasets:[{ label:'R$ por hora', data: valores, tension:.3, fill:true, borderWidth:2, borderColor:'#7cb8ff', backgroundColor:'rgba(124,184,255,.18)' }] };
+  if(chartDia){ chartDia.data = ds; chartDia.update(); }
+  else { chartDia = new Chart(ctx, { type:'line', data: ds, options:{ responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } } }); }
+}
+
+/********************** RENDER – CANCELAMENTOS *************************/
+let chartCanc;
+function renderCancelamentos(data){
+  // Esperado: { total:number, itens:[{nome, qtde, total}], motivos:[{motivo, valor}] }
+  const total = data?.total ?? 0;
+  $('#kpiCanc').textContent = CURRENCY.format(total);
+  const totalVendas = state.data?.metas?.realizado ?? 0; // se tiver
+  const pc = pct(total, totalVendas);
+  $('#kpiCancSub').innerHTML = `${CURRENCY.format(total)} no período — <span class="pill ${pc<3?'ok':pc<8?'neutral':'bad'}">${pc.toFixed(1)}%</span>`;
+
+  // Pizza por motivo
+  const labels = (data?.motivos||[]).map(m=>m.motivo);
+  const valores = (data?.motivos||[]).map(m=>m.valor);
+  const ctx = document.getElementById('chartCanc');
+  const ds = { labels, datasets:[{ label:'R$', data: valores, borderWidth:2, borderColor:'#0b1020' }] };
+  if(chartCanc){ chartCanc.data = ds; chartCanc.update(); }
+  else { chartCanc = new Chart(ctx, { type:'doughnut', data: ds, options:{ responsive:true, plugins:{ legend:{position:'bottom'} } } }); }
+
+  // Tabela de itens cancelados
+  const tbody = document.querySelector('#tblCanc tbody');
+  tbody.innerHTML='';
+  (data?.itens||[]).forEach(it=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>❌ ${it.nome}</td><td>${it.qtde}</td><td>${CURRENCY.format(it.total)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+/********************** RENDER – TRAVAS *************************/
+function renderTravas(data){
+  // Esperado: { travaTotal:number, gastoGeral:number, travaFornec:number, gastoFornec:number, detalhado?:[{label,max,valor}] }
+  const travaTotal = data?.travaTotal ?? 0;
+  const gastoGeral = data?.gastoGeral ?? 0;
+  const travaFor = data?.travaFornec ?? 0;
+  const gastoFor = data?.gastoFornec ?? 0;
+
+  const wrap = document.getElementById('travasWrap');
+  wrap.innerHTML = '';
+  wrap.insertAdjacentHTML('beforeend', barHTML('Trava Total de Pagamentos', gastoGeral, travaTotal));
+  wrap.insertAdjacentHTML('beforeend', barHTML('Trava Fornecedores', gastoFor, travaFor));
+
+  $('#kpiTrava').textContent = CURRENCY.format(gastoGeral);
+  const p = pct(gastoGeral, travaTotal);
+  $('#kpiTravaSub').innerHTML = `${CURRENCY.format(gastoGeral)} de ${CURRENCY.format(travaTotal)} — <span class="pill ${p>100?'bad':p>80?'neutral':'ok'}">${p.toFixed(1)}%</span>`;
+
+  (data?.detalhado||[]).forEach(d=>{
+    wrap.insertAdjacentHTML('beforeend', barHTML(d.label, d.valor, d.max));
+  });
+}
+
+/********************** INICIALIZAÇÃO *************************/
+window.addEventListener('load', ()=>{
+  // Inicial
+  $('#dtInicio').value = todayISO();
+  $('#dtFim').value = todayISO();
+});
+</script>
+</body>
+</html>
