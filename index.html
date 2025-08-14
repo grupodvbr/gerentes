@@ -43,6 +43,8 @@
     .ok{background:rgba(119,224,181,.15);color:#b8fbe2;border:1px solid rgba(119,224,181,.3)}
     .bad{background:rgba(255,107,107,.15);color:#ffd0d0;border:1px solid rgba(255,107,107,.35)}
     .neutral{background:rgba(124,184,255,.15);color:#dcebff;border:1px solid rgba(124,184,255,.3)}
+
+    /* Overlays */
     .overlay{position:fixed;inset:0;background:radial-gradient(1200px 600px at 70% -10%,rgba(76,133,255,.25),transparent 60%),
                                    radial-gradient(1000px 600px at -10% 40%,rgba(119,224,181,.15),transparent 60%),
                                    #0b1020f2;display:flex;align-items:center;justify-content:center;z-index:99}
@@ -55,6 +57,13 @@
     .lock{display:inline-flex;width:36px;height:36px;border-radius:12px;align-items:center;justify-content:center;background:rgba(255,255,255,.06);margin-right:8px}
     .notice{font-size:12px;color:var(--muted)}
     .err{color:#ffd0d0}
+
+    /* Loader (bolinha) */
+    #loadingOverlay{display:none}
+    .loader-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;background:#0b1020e6;padding:20px 24px;border-radius:16px;border:1px solid rgba(255,255,255,.08)}
+    .spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:#7cb8ff;animation:spin 0.9s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
     @media (max-width: 980px){
       .grid{grid-template-columns:1fr}
       .kpis{grid-template-columns:repeat(2,1fr)}
@@ -76,7 +85,7 @@
         <select class="select" id="empresaSelect">
           <option value="">Selecione…</option>
           <option>MERCATTO DELÍCIA</option>
-          <option>DELÍCIA GOURMET</option>
+          <option>DELICIA GOURMET</option>
           <option>VILLA GOURMET</option>
           <option>M. KIDS</option>
           <option>PADARIA DELÍCIA</option>
@@ -85,14 +94,22 @@
       <div class="field">
         <label>Senha</label>
         <input id="senhaInput" class="input" type="password" placeholder="••••••••" />
-        <div class="hint">Dica: edite o mapa de senhas em <code>COMPANY_PASSWORDS</code> no topo do script.</div>
+        <div class="hint">Dica: edite o mapa de senhas em <code>COMPANY_PASSWORDS</code>.</div>
         <div class="hint err" id="loginErr" style="display:none">Empresa ou senha inválidos.</div>
       </div>
       <div class="row" style="justify-content:space-between;margin-top:6px">
         <button class="btn ghost" id="verEmpresas">Ver empresas habilitadas</button>
         <button class="btn primary" id="entrarBtn">Entrar</button>
       </div>
-      <p class="notice" style="margin-top:10px">⚠️ Este login é para uso interno. É proibido o compartilhamento do link com terceiros.</p>
+      <p class="notice" style="margin-top:10px">⚠️ Este login é client-side e adequado para uso interno.</p>
+    </div>
+  </div>
+
+  <!-- Overlay de Carregando -->
+  <div class="overlay" id="loadingOverlay">
+    <div class="loader-wrap">
+      <div class="spinner"></div>
+      <div class="badge">Carregando dados…</div>
     </div>
   </div>
 
@@ -161,7 +178,7 @@
 /********************** CONFIG *************************/
 const COMPANY_PASSWORDS = {
   "MERCATTO DELÍCIA": "mercatto#2025",
-  "DELÍCIA GOURMET": "delicia#2025",
+  "DELICIA GOURMET": "delicia#2025",
   "VILLA GOURMET": "villa#2025",
   "M. KIDS": "mkids#2025",
   "PADARIA DELÍCIA": "padaria#2025"
@@ -169,7 +186,7 @@ const COMPANY_PASSWORDS = {
 
 const ENDPOINTS = {
   // Seu Apps Script que lê a aba "Metas"
-  METAS: "https://script.google.com/macros/s/AKfycbx3xmZeDxBLzCtZx7HnlIlJlhtTVqVNXugToptqxv1alhN2xSJpw-7TJrjzsL7DgtBg/exec",
+  METAS: "https://script.google.com/macros/s/AKfycbxeXQrVqyF3r6VfZv_snHTpmbbO0awKAnJXULh3wBD6ePAuChcnuGmkcM0Jthsn9eVM/exec",
   VENDAS_DIA: "",     
   CANCELAMENTOS: "https://script.google.com/macros/s/AKfycbzM1mmixFkFE5tbC-0Evc6GVyZEJkh88HCikNK08FujRwCrgUA1e_E29nMHip81kRPoSg/exec",
   TRAVAS: ""          
@@ -201,27 +218,50 @@ function parseBR(n){
   return Number(String(n).replace(/\s|R\$/g,'').replace(/\./g,'').replace(',', '.')) || 0;
 }
 
-/********************** LOGIN *************************/
-const overlay = $('#loginOverlay');
-$('#entrarBtn').addEventListener('click', doLogin);
-$('#verEmpresas').addEventListener('click', ()=> alert('Empresas habilitadas: '+Object.keys(COMPANY_PASSWORDS).join(', ')) );
-$('#btnSair').addEventListener('click', ()=>{ overlay.style.display='flex'; state.empresa=null; setBadgeEmpresa('—'); });
+/* === Helpers de calendário para projeção (PREVISÃO) === */
+function _dayOfMonth(iso){ const d = new Date(iso+'T00:00:00'); return isNaN(d)? 0 : d.getDate(); }
+function _daysInMonth(iso){ const d = new Date(iso+'T00:00:00'); if(isNaN(d)) return 0; return new Date(d.getFullYear(), d.getMonth()+1, 0).getDate(); }
+function calcularPrevisaoMensal(periodoISO, realizadoAteHoje){
+  const dia = _dayOfMonth(periodoISO), diasMes = _daysInMonth(periodoISO);
+  if(!dia || !diasMes) return 0;
+  return (realizadoAteHoje / dia) * diasMes;
+}
 
-function doLogin(){
+/********************** LOGIN *************************/
+const loginOverlay = $('#loginOverlay');
+const loadingOverlay = $('#loadingOverlay');
+$('#entrarBtn').addEventListener('click', ()=>doLogin());
+$('#verEmpresas').addEventListener('click', ()=> alert('Empresas habilitadas: '+Object.keys(COMPANY_PASSWORDS).join(', ')) );
+$('#btnSair').addEventListener('click', ()=>{ loginOverlay.style.display='flex'; state.empresa=null; setBadgeEmpresa('—'); });
+
+async function doLogin(){
   const emp = $('#empresaSelect').value.trim();
   const pw = $('#senhaInput').value;
   const ok = COMPANY_PASSWORDS[emp] && COMPANY_PASSWORDS[emp]===pw;
   if(!ok){ $('#loginErr').style.display='block'; return }
   $('#loginErr').style.display='none';
   state.empresa = emp; setBadgeEmpresa(emp);
-  overlay.style.display='none';
+  loginOverlay.style.display='none';
   $('#dtInicio').value = todayISO(); $('#dtFim').value = todayISO();
-  refreshAll();
+
+  // mostra bolinha e carrega
+  loadingOverlay.style.display='flex';
+  try { await refreshAll(); } 
+  finally { loadingOverlay.style.display='none'; }
 }
 
 /********************** INTERAÇÕES *************************/
-$('#btnHoje').addEventListener('click', ()=>{ $('#dtInicio').value=todayISO(); $('#dtFim').value=todayISO(); refreshAll(); });
-$('#btnAtualizar').addEventListener('click', refreshAll);
+$('#btnHoje').addEventListener('click', async ()=>{
+  $('#dtInicio').value=todayISO(); $('#dtFim').value=todayISO();
+  loadingOverlay.style.display='flex';
+  try { await refreshAll(); } finally { loadingOverlay.style.display='none'; }
+});
+
+$('#btnAtualizar').addEventListener('click', async ()=>{
+  loadingOverlay.style.display='flex';
+  try { await refreshAll(); } finally { loadingOverlay.style.display='none'; }
+});
+
 $('#btnCSV').addEventListener('click', ()=>{
   const rows = [
     ['Empresa', state.empresa], ['Início', state.periodo.inicio], ['Fim', state.periodo.fim], [],
@@ -237,8 +277,6 @@ $('#btnCSV').addEventListener('click', ()=>{
 $('#btnPDF').addEventListener('click', ()=>{ window.print(); });
 
 /********************** PARSE – METAS *************************/
-// Aceita: array direto OU {data:[...]} (alguns scripts devolvem assim).
-// Também aceita números como string BR ("R$ 1.024.000,00").
 function normalizeMetasPayload(raw){
   const arr = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
   return arr.map(r => ({
@@ -248,7 +286,6 @@ function normalizeMetasPayload(raw){
     Realizado: parseBR(r?.Realizado ?? r?.realizado),
   }));
 }
-
 // Filtra pela empresa e pega SOMENTE a maior Data válida (ignora "1969-12-31")
 function pickUltimaMeta(records, empresa){
   const validos = records.filter(r =>
@@ -267,14 +304,14 @@ async function refreshAll(){
   if(!state.empresa) return;
   state.periodo.inicio = $('#dtInicio').value; state.periodo.fim = $('#dtFim').value;
 
-  // 1) tenta o endpoint já filtrado por empresa e última data (servidor faz o trabalho)
+  // 1) tenta o endpoint já filtrado por empresa e última data
   let metasPacked = null;
   try{
     const urlUltima = buildURL(ENDPOINTS.METAS, { empresa: state.empresa, ultima: 'true' });
     metasPacked = await safeFetch(urlUltima);
   }catch(e){ metasPacked = null; }
 
-  // 2) se vier vazio ou falhar, busca bruto e filtra no cliente
+  // 2) fallback: busca bruto
   if(!metasPacked || (Array.isArray(metasPacked) && metasPacked.length===0) || (Array.isArray(metasPacked?.data) && metasPacked.data.length===0)){
     try{ metasPacked = await safeFetch(ENDPOINTS.METAS); }catch(e){ metasPacked = []; }
   }
@@ -282,7 +319,7 @@ async function refreshAll(){
   const metasArr = normalizeMetasPayload(metasPacked);
   const metas = pickUltimaMeta(metasArr, state.empresa);
 
-  // Outros endpoints permanecem opcionais
+  // Outros endpoints (opcionais)
   const [vendasDia, cancelamentos, travas] = await Promise.all([
     ENDPOINTS.VENDAS_DIA ? safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
     ENDPOINTS.CANCELAMENTOS ? safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
@@ -297,25 +334,46 @@ async function refreshAll(){
   renderTravas(travas);
 }
 
-/********************** RENDER – METAS *************************/
+/********************** RENDER – METAS (com PREVISÃO) *************************/
 let chartMetas;
 function renderMetas(data){
   const meta = data?.metaMensal ?? 0;       // Previsto
   const realizado = data?.realizado ?? 0;   // Realizado
-  const periodo = data?.periodo ?? "-";
+  const periodo = data?.periodo ?? "-";     // yyyy-mm-dd
 
-  // Agora o KPI principal mostra a META (Previsto)
+  // Previsão do mês pelo ritmo atual
+  const previsao = calcularPrevisaoMensal(periodo, realizado);
+
+  // KPI: mostra META (valor principal), Realizado e Previsão
   $('#kpiMeta').textContent = CURRENCY.format(meta);
-  const p = pct(realizado, meta);
-  $('#kpiMetaSub').innerHTML = `${periodo} — Realizado ${CURRENCY.format(realizado)} de ${CURRENCY.format(meta)} — <span class="pill ${p>=100?'ok':p>=80?'neutral':'bad'}">${p.toFixed(1)}%</span>`;
+  const pReal = pct(realizado, meta);
+  const pPrev = pct(previsao, meta);
+  $('#kpiMetaSub').innerHTML =
+    `${periodo} — Realizado ${CURRENCY.format(realizado)} de ${CURRENCY.format(meta)} — ` +
+    `<span class="pill ${pReal>=100?'ok':pReal>=80?'neutral':'bad'}">${pReal.toFixed(1)}%</span>` +
+    `<br>Previsão ${CURRENCY.format(previsao)} — ` +
+    `<span class="pill ${pPrev>=100?'ok':pPrev>=80?'neutral':'bad'}">${pPrev.toFixed(1)}%</span>`;
 
+  // Gráfico: Previsto x Realizado x Previsão
   const ctx = document.getElementById('chartMetas');
   const ds = {
-    labels:['Previsto (última data)','Realizado (última data)'],
-    datasets:[{ label:'R$', data:[meta, realizado], borderWidth:2, backgroundColor:['#1b2652','#77e0b5'], borderColor:'#88f0d4'}]
+    labels:['Previsto (última data)','Realizado (última data)','Previsão (mês)'],
+    datasets:[{
+      label:'R$',
+      data:[meta, realizado, previsao],
+      borderWidth:2,
+      backgroundColor:['#1b2652','#77e0b5','#ffb84d'],
+      borderColor:'#88f0d4'
+    }]
   };
   if(chartMetas){ chartMetas.data = ds; chartMetas.update(); }
-  else { chartMetas = new Chart(ctx, { type:'bar', data: ds, options: { responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } } }); }
+  else {
+    chartMetas = new Chart(ctx, {
+      type:'bar',
+      data: ds,
+      options: { responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ beginAtZero:true } } }
+    });
+  }
 }
 
 /********************** RENDER – VENDAS DO DIA *************************/
