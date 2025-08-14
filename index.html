@@ -196,6 +196,8 @@ const CURRENCY = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BR
 
 /********************** ESTADO *************************/
 const state = { empresa:null, periodo:{inicio:null,fim:null}, data:{ metas:null, vendasDia:null, cancelamentos:null, travas:null } };
+// >>> NOVO: flag para usar a ÚLTIMA DATA apenas no primeiro carregamento <<<
+let _vendasPrimeiroCarregamento = true;
 
 /********************** UTIL *************************/
 const $ = (q)=>document.querySelector(q);
@@ -319,9 +321,39 @@ async function refreshAll(){
   const metasArr = normalizeMetasPayload(metasPacked);
   const metas = pickUltimaMeta(metasArr, state.empresa);
 
-  // Outros endpoints (opcionais)
-  const [vendasDia, cancelamentos, travas] = await Promise.all([
-    ENDPOINTS.VENDAS_DIA ? safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
+  // >>> ALTERAÇÃO AQUI: VENDAS_DIA usa a ÚLTIMA DATA só no primeiro carregamento <<<
+  let vendasDia = null;
+  if (ENDPOINTS.VENDAS_DIA) {
+    try {
+      if (_vendasPrimeiroCarregamento) {
+        // busca série (empresa) e pega a última data disponível
+        const serie = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa }));
+        const arr = Array.isArray(serie) ? serie : (Array.isArray(serie?.data) ? serie.data : []);
+        let last = null;
+        for (const r of arr) {
+          const d = (r?.data || r?.Data || '').slice(0,10);
+          if (d && (!last || d > last)) last = d;
+        }
+        if (last) {
+          // detalhe do dia (endpoint aceita ?empresa=&data=YYYY-MM-DD)
+          vendasDia = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, data: last }));
+        } else {
+          // fallback para filtro atual
+          vendasDia = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim }));
+        }
+        _vendasPrimeiroCarregamento = false; // a partir de agora, obedecerá ao filtro
+      } else {
+        // depois do primeiro load, sempre usa o filtro dos inputs
+        vendasDia = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim }));
+      }
+    } catch (e) {
+      vendasDia = null;
+      _vendasPrimeiroCarregamento = false;
+    }
+  }
+
+  // Demais endpoints (inalterados)
+  const [cancelamentos, travas] = await Promise.all([
     ENDPOINTS.CANCELAMENTOS ? safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
     ENDPOINTS.TRAVAS ? safeFetch(buildURL(ENDPOINTS.TRAVAS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
   ]);
