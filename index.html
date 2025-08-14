@@ -64,6 +64,10 @@
     .spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:#7cb8ff;animation:spin 0.9s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
 
+    /* ----- Lista com rolagem invisível (Cancelamentos) ----- */
+    .canc-list{max-height:220px;overflow:auto;padding-right:6px;scrollbar-width:none;-ms-overflow-style:none}
+    .canc-list::-webkit-scrollbar{width:0;height:0}
+    
     @media (max-width: 980px){
       .grid{grid-template-columns:1fr}
       .kpis{grid-template-columns:repeat(2,1fr)}
@@ -154,10 +158,13 @@
             <canvas id="chartCanc" height="160"></canvas>
           </div>
           <div style="flex:1">
-            <table class="table" id="tblCanc">
-              <thead><tr><th>Item</th><th>Qtde</th><th>Total</th></tr></thead>
-              <tbody></tbody>
-            </table>
+            <!-- LISTA COM ROLAGEM INVISÍVEL -->
+            <div class="canc-list">
+              <table class="table" id="tblCanc">
+                <thead><tr><th>Item</th><th>Total</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -187,6 +194,7 @@ const COMPANY_PASSWORDS = {
 const ENDPOINTS = {
   METAS: "https://script.google.com/macros/s/AKfycbx3xmZeDxBLzCtZx7HnlIlJlhtTVqVNXugToptqxv1alhN2xSJpw-7TJrjzsL7DgtBg/exec",
   VENDAS_DIA: "https://script.google.com/macros/s/AKfycbzP7mKm0n0B1mBW5sERPZT4jnGxG2dKTcnN17W_2F2_i0Po0szL8GZxAb7RNPCBmJSS/exec",
+  /* coloque aqui o endpoint correto de CANCELAMENTOS */
   CANCELAMENTOS: "https://script.google.com/macros/s/AKfycbzP7mKm0n0B1mBW5sERPZT4jnGxG2dKTcnN17W_2F2_i0Po0szL8GZxAb7RNPCBmJSS/exec",
   TRAVAS: ""          
 };
@@ -195,12 +203,18 @@ const CURRENCY = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BR
 
 /********************** ESTADO *************************/
 const state = { empresa:null, periodo:{inicio:null,fim:null}, data:{ metas:null, vendasDia:null, cancelamentos:null, travas:null } };
-let _vendasPrimeiroCarregamento = true; // últimos 7 dias só no primeiro load
+let _vendasPrimeiroCarregamento = true; // últimos 7 dias (vendas)
+let _cancPrimeiroCarregamento   = true; // últimos 7 dias (cancelamentos)
 
 /********************** UTIL *************************/
 const $ = (q)=>document.querySelector(q);
 function setBadgeEmpresa(name){ $('#empresaBadge').textContent = name || '—' }
 function todayISO(){ return new Date().toISOString().slice(0,10) }
+function addDaysISO(iso, delta){
+  const d = new Date(iso+'T00:00:00'); d.setDate(d.getDate()+delta);
+  const y=d.getFullYear(), m=('0'+(d.getMonth()+1)).slice(-2), dd=('0'+d.getDate()).slice(-2);
+  return `${y}-${m}-${dd}`;
+}
 function buildURL(base, params){ const u = new URL(base); Object.entries(params||{}).forEach(([k,v])=>{ if(v!==undefined && v!==null && v!=='') u.searchParams.set(k,v) }); return u.toString(); }
 async function safeFetch(url){ const res = await fetch(url); if(!res.ok) throw new Error('HTTP '+res.status); return res.json(); }
 function pct(num, den){ return den>0 ? (num/den)*100 : 0 }
@@ -217,7 +231,6 @@ function parseBR(n){
   if(n==null || n==='') return 0;
   return Number(String(n).replace(/\s|R\$/g,'').replace(/\./g,'').replace(',', '.')) || 0;
 }
-/* formatador de data dd/mm/aaaa */
 function fmtBR(iso){
   if(!iso) return '';
   const d = new Date(iso+'T00:00:00');
@@ -328,19 +341,16 @@ async function refreshAll(){
   const metasArr = normalizeMetasPayload(metasPacked);
   const metas = pickUltimaMeta(metasArr, state.empresa);
 
-  // VENDAS POR DIA
+  // VENDAS POR DIA (gráfico de dias)
   let vendasDia = null;
   if (ENDPOINTS.VENDAS_DIA) {
     try {
-      // pega série completa e filtra no front
       const serie = await safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa }));
       const arr = Array.isArray(serie) ? serie : (Array.isArray(serie?.data) ? serie.data : []);
-      // normaliza: [{dataISO, total}]
       const norm = arr.map(r => ({ 
         dataISO: (r?.data || r?.Data || '').slice(0,10), 
         total: Number(r?.total ?? r?.Total ?? r?.valor ?? 0)
       })).filter(x => x.dataISO);
-
       norm.sort((a,b)=> a.dataISO.localeCompare(b.dataISO));
 
       let janela = [];
@@ -369,11 +379,27 @@ async function refreshAll(){
     }
   }
 
-  // cancelamentos/travas (inalterados, se houver)
-  const [cancelamentos, travas] = await Promise.all([
-    ENDPOINTS.CANCELAMENTOS ? safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
-    ENDPOINTS.TRAVAS ? safeFetch(buildURL(ENDPOINTS.TRAVAS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
-  ]);
+  // CANCELAMENTOS — últimos 7 dias no 1º load, depois filtros
+  let cancelamentos = null;
+  if (ENDPOINTS.CANCELAMENTOS){
+    try{
+      if (_cancPrimeiroCarregamento){
+        const fim = todayISO();
+        const inicio = addDaysISO(fim, -6); // janela de 7 dias
+        cancelamentos = await safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, { empresa: state.empresa, inicio, fim }));
+        cancelamentos.inicio = inicio; cancelamentos.fim = fim; // para o subtítulo
+        _cancPrimeiroCarregamento = false;
+      } else {
+        cancelamentos = await safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim }));
+        cancelamentos.inicio = state.periodo.inicio; cancelamentos.fim = state.periodo.fim;
+      }
+    }catch(e){ cancelamentos = null; _cancPrimeiroCarregamento=false; }
+  }
+
+  // TRAVAS
+  const travas = ENDPOINTS.TRAVAS
+    ? await safeFetch(buildURL(ENDPOINTS.TRAVAS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null)
+    : null;
 
   state.data = { metas, vendasDia, cancelamentos, travas };
 
@@ -428,11 +454,8 @@ function renderVendasDia(data){
   const totalPeriodo = data?.totalHoje ?? 0;
   $('#kpiDia').textContent = CURRENCY.format(totalPeriodo);
 
-  // Sub: data única ou período
   let sub = '—';
-  if (data?.data) {
-    sub = `Data ${fmtBR(data.data)}`;
-  } else if (data?.inicio || data?.fim) {
+  if (data?.inicio || data?.fim) {
     const i = data.inicio ? fmtBR(data.inicio) : '—';
     const f = data.fim ? fmtBR(data.fim) : '—';
     sub = `Período ${i} a ${f}`;
@@ -450,24 +473,37 @@ function renderVendasDia(data){
 /********************** RENDER – CANCELAMENTOS *************************/
 let chartCanc;
 function renderCancelamentos(data){
-  const total = data?.total ?? 0;
+  const total = data?.total ?? (Array.isArray(data?.itens) ? data.itens.reduce((s,i)=>s+(i.total||i.valor||0),0) : 0);
   $('#kpiCanc').textContent = CURRENCY.format(total);
+
   const totalVendas = state.data?.metas?.realizado ?? 0;
   const pc = pct(total, totalVendas);
-  $('#kpiCancSub').innerHTML = `${CURRENCY.format(total)} no período — <span class="pill ${pc<3?'ok':pc<8?'neutral':'bad'}">${pc.toFixed(1)}%</span>`;
+  const subPeriodo = (data?.inicio || data?.fim) ? ` — ${fmtBR(data.inicio||'')} a ${fmtBR(data.fim||'')}` : '';
+  $('#kpiCancSub').innerHTML = `${CURRENCY.format(total)} no período${subPeriodo} — <span class="pill ${pc<3?'ok':pc<8?'neutral':'bad'}">${pc.toFixed(1)}%</span>`;
 
-  const labels = (data?.motivos||[]).map(m=>m.motivo);
-  const valores = (data?.motivos||[]).map(m=>m.valor);
+  // gráfico: tenta motivos; se não houver, usa top itens
+  let labels = (data?.motivos||[]).map(m=>m.motivo);
+  let valores = (data?.motivos||[]).map(m=>m.valor);
+  if (!labels.length && Array.isArray(data?.itens)) {
+    const top = [...data.itens].sort((a,b)=>(b.total||b.valor||0)-(a.total||a.valor||0)).slice(0,6);
+    labels = top.map(t=>t.nome || t.item || '—');
+    valores = top.map(t=>t.total || t.valor || 0);
+  }
   const ctx = document.getElementById('chartCanc');
   const ds = { labels, datasets:[{ label:'R$', data: valores, borderWidth:2, borderColor:'#0b1020' }] };
   if(chartCanc){ chartCanc.data = ds; chartCanc.update(); }
   else { chartCanc = new Chart(ctx, { type:'doughnut', data: ds, options:{ responsive:true, plugins:{ legend:{position:'bottom'} } } }); }
 
+  // lista de itens — ordenar do mais caro para o mais barato
   const tbody = document.querySelector('#tblCanc tbody');
   tbody.innerHTML='';
-  (data?.itens||[]).forEach(it=>{
+  const itens = Array.isArray(data?.itens) ? [...data.itens] : [];
+  itens.sort((a,b)=>(b.total||b.valor||0)-(a.total||a.valor||0));
+  itens.forEach(it=>{
+    const nome  = it.nome || it.item || '—';
+    const valor = it.total || it.valor || 0;
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>❌ ${it.nome}</td><td>${it.qtde}</td><td>${CURRENCY.format(it.total)}</td>`;
+    tr.innerHTML = `<td>❌ ${nome}</td><td style="white-space:nowrap">${CURRENCY.format(valor)}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -483,6 +519,7 @@ function renderTravas(data){
   wrap.innerHTML = '';
   if(travaTotal || gastoGeral){
     wrap.insertAdjacentHTML('beforeend', barHTML('Trava Total de Pagamentos', gastoGeral, travaTotal));
+    wrap.insertAdjacentHTMLHTML && wrap.insertAdjacentHTMLHTML(); // no-op guard
     wrap.insertAdjacentHTML('beforeend', barHTML('Trava Fornecedores', gastoFor, travaFor));
   }else{
     wrap.innerHTML = '<div class="badge">Sem dados de travas para o período.</div>';
