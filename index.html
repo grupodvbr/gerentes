@@ -168,12 +168,11 @@ const COMPANY_PASSWORDS = {
 };
 
 const ENDPOINTS = {
-  // METAS: retorna um ARRAY com {Data, Empresa, Previsto, Realizado}
+  // Seu Apps Script que lê a aba "Metas"
   METAS: "https://script.google.com/macros/s/AKfycbxeXQrVqyF3r6VfZv_snHTpmbbO0awKAnJXULh3wBD6ePAuChcnuGmkcM0Jthsn9eVM/exec",
-  // Preencha se quiser usar:
-  VENDAS_DIA: "",     // ?empresa=&inicio=&fim=
+  VENDAS_DIA: "",     
   CANCELAMENTOS: "https://script.google.com/macros/s/AKfycbzM1mmixFkFE5tbC-0Evc6GVyZEJkh88HCikNK08FujRwCrgUA1e_E29nMHip81kRPoSg/exec",
-  TRAVAS: ""          // ?empresa=&inicio=&fim=
+  TRAVAS: ""          
 };
 
 const CURRENCY = new Intl.NumberFormat('pt-BR', { style:'currency', currency:'BRL' });
@@ -185,14 +184,8 @@ const state = { empresa:null, periodo:{inicio:null,fim:null}, data:{ metas:null,
 const $ = (q)=>document.querySelector(q);
 function setBadgeEmpresa(name){ $('#empresaBadge').textContent = name || '—' }
 function todayISO(){ return new Date().toISOString().slice(0,10) }
-function buildURL(base, params){
-  const u = new URL(base); Object.entries(params||{}).forEach(([k,v])=>{ if(v!==undefined && v!==null && v!=='') u.searchParams.set(k,v) }); return u.toString();
-}
-async function safeFetch(url){
-  const res = await fetch(url, { headers: { 'Content-Type':'application/json' } });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  return res.json();
-}
+function buildURL(base, params){ const u = new URL(base); Object.entries(params||{}).forEach(([k,v])=>{ if(v!==undefined && v!==null && v!=='') u.searchParams.set(k,v) }); return u.toString(); }
+async function safeFetch(url){ const res = await fetch(url); if(!res.ok) throw new Error('HTTP '+res.status); return res.json(); }
 function pct(num, den){ return den>0 ? (num/den)*100 : 0 }
 function clamp(n, min, max){ return Math.max(min, Math.min(max, n)) }
 function barHTML(label, value, max){
@@ -202,6 +195,11 @@ function barHTML(label, value, max){
           <div class="progress"><i style="width:${Math.min(p,100)}%;${theme}"></i></div>`
 }
 function toCSV(rows){ return rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(',')).join('\n') }
+function parseBR(n){
+  if(typeof n==='number') return n;
+  if(n==null || n==='') return 0;
+  return Number(String(n).replace(/\s|R\$/g,'').replace(/\./g,'').replace(',', '.')) || 0;
+}
 
 /********************** LOGIN *************************/
 const overlay = $('#loginOverlay');
@@ -238,39 +236,30 @@ $('#btnCSV').addEventListener('click', ()=>{
 });
 $('#btnPDF').addEventListener('click', ()=>{ window.print(); });
 
-/********************** PARSE – METAS (formato do seu script) *************************/
-/*
-  Entrada (exatamente como no print do JSON):
-  [
-    {"Data":"2025-08-13","Empresa":"VILLA GOURMET","Previsto":700000,"Realizado":245913.49},
-    {"Data":"1969-12-31","Empresa":"","Previsto":"","Realizado":""},
-    ...
-  ]
-*/
-function pickUltimaMetaDoEndpoint(raw, empresa){
-  const rows = Array.isArray(raw) ? raw : [];
+/********************** PARSE – METAS *************************/
+// Aceita: array direto OU {data:[...]} (alguns scripts devolvem assim).
+// Também aceita números como string BR ("R$ 1.024.000,00").
+function normalizeMetasPayload(raw){
+  const arr = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+  return arr.map(r => ({
+    Data: r?.Data || r?.data || '',
+    Empresa: (r?.Empresa || r?.empresa || '').trim(),
+    Previsto: parseBR(r?.Previsto ?? r?.previsto),
+    Realizado: parseBR(r?.Realizado ?? r?.realizado),
+  }));
+}
 
-  // 1) filtra por empresa e ignora linhas "vazias" e datas fake
-  const validos = rows.filter(r =>
-    r && r.Empresa === empresa &&
-    r.Data && r.Data !== "1969-12-31" &&
-    r.Previsto !== "" && r.Realizado !== "" &&
-    r.Previsto != null && r.Realizado != null
+// Filtra pela empresa e pega SOMENTE a maior Data válida (ignora "1969-12-31")
+function pickUltimaMeta(records, empresa){
+  const validos = records.filter(r =>
+    r.Empresa === empresa &&
+    r.Data && r.Data !== '1969-12-31' &&
+    (r.Previsto !== '' && r.Realizado !== '')
   );
-
-  if (!validos.length) return { metaMensal: 0, realizado: 0, periodo: "-" };
-
-  // 2) pega a maior data (como yyyy-mm-dd a comparação de string funciona)
-  const ultimaData = validos.reduce((max, r) => r.Data > max ? r.Data : max, validos[0].Data);
-
-  // 3) pega o registro dessa última data
-  const rec = validos.find(r => r.Data === ultimaData) || validos[validos.length - 1];
-
-  return {
-    metaMensal: Number(rec.Previsto) || 0,
-    realizado: Number(rec.Realizado) || 0,
-    periodo: ultimaData
-  };
+  if(!validos.length) return { metaMensal:0, realizado:0, periodo:'-' };
+  const ultimaData = validos.reduce((m,r)=> r.Data>m? r.Data : m, validos[0].Data);
+  const rec = validos.find(r=>r.Data===ultimaData) || validos[validos.length-1];
+  return { metaMensal: parseBR(rec.Previsto), realizado: parseBR(rec.Realizado), periodo: ultimaData };
 }
 
 /********************** BUSCA DE DADOS *************************/
@@ -278,14 +267,27 @@ async function refreshAll(){
   if(!state.empresa) return;
   state.periodo.inicio = $('#dtInicio').value; state.periodo.fim = $('#dtFim').value;
 
-  const [metasRaw, vendasDia, cancelamentos, travas] = await Promise.all([
-    ENDPOINTS.METAS ? safeFetch(ENDPOINTS.METAS).catch(()=>null) : Promise.resolve(null),
+  // 1) tenta o endpoint já filtrado por empresa e última data (servidor faz o trabalho)
+  let metasPacked = null;
+  try{
+    const urlUltima = buildURL(ENDPOINTS.METAS, { empresa: state.empresa, ultima: 'true' });
+    metasPacked = await safeFetch(urlUltima);
+  }catch(e){ metasPacked = null; }
+
+  // 2) se vier vazio ou falhar, busca bruto e filtra no cliente
+  if(!metasPacked || (Array.isArray(metasPacked) && metasPacked.length===0) || (Array.isArray(metasPacked?.data) && metasPacked.data.length===0)){
+    try{ metasPacked = await safeFetch(ENDPOINTS.METAS); }catch(e){ metasPacked = []; }
+  }
+
+  const metasArr = normalizeMetasPayload(metasPacked);
+  const metas = pickUltimaMeta(metasArr, state.empresa);
+
+  // Outros endpoints permanecem opcionais
+  const [vendasDia, cancelamentos, travas] = await Promise.all([
     ENDPOINTS.VENDAS_DIA ? safeFetch(buildURL(ENDPOINTS.VENDAS_DIA, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
     ENDPOINTS.CANCELAMENTOS ? safeFetch(buildURL(ENDPOINTS.CANCELAMENTOS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
     ENDPOINTS.TRAVAS ? safeFetch(buildURL(ENDPOINTS.TRAVAS, { empresa: state.empresa, inicio: state.periodo.inicio, fim: state.periodo.fim })).catch(()=>null) : Promise.resolve(null),
   ]);
-
-  const metas = pickUltimaMetaDoEndpoint(metasRaw, state.empresa);
 
   state.data = { metas, vendasDia, cancelamentos, travas };
 
@@ -298,13 +300,14 @@ async function refreshAll(){
 /********************** RENDER – METAS *************************/
 let chartMetas;
 function renderMetas(data){
-  const meta = data?.metaMensal ?? 0;
-  const realizado = data?.realizado ?? 0;
+  const meta = data?.metaMensal ?? 0;       // Previsto
+  const realizado = data?.realizado ?? 0;   // Realizado
   const periodo = data?.periodo ?? "-";
 
-  $('#kpiMeta').textContent = CURRENCY.format(realizado);
+  // Agora o KPI principal mostra a META (Previsto)
+  $('#kpiMeta').textContent = CURRENCY.format(meta);
   const p = pct(realizado, meta);
-  $('#kpiMetaSub').innerHTML = `${periodo} — ${CURRENCY.format(realizado)} de ${CURRENCY.format(meta)} — <span class="pill ${p>=100?'ok':p>=80?'neutral':'bad'}">${p.toFixed(1)}%</span>`;
+  $('#kpiMetaSub').innerHTML = `${periodo} — Realizado ${CURRENCY.format(realizado)} de ${CURRENCY.format(meta)} — <span class="pill ${p>=100?'ok':p>=80?'neutral':'bad'}">${p.toFixed(1)}%</span>`;
 
   const ctx = document.getElementById('chartMetas');
   const ds = {
