@@ -341,8 +341,6 @@ btnFiltrar.onclick = carregar;
 empresaSelect.onchange = carregar;
 
 carregar();
-
-<script>
 const searchInput = document.getElementById("searchInput");
 
 searchInput.addEventListener("input", () => {
@@ -360,7 +358,6 @@ searchInput.addEventListener("input", () => {
     item.style.display = nome.includes(termo) ? "" : "none";
   });
 });
-</script>
 </script>
 </body>
 </html>
