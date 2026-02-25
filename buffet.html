@@ -115,34 +115,71 @@ th{
   .chart-wrap{height:200px}
 }
 
-/* 🔎 Barra de busca discreta */
-.search-wrap{
-  display:flex;
+/* ===== MODAL ===== */
+.modal-backdrop{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.55);
+  display:none;
   align-items:center;
-  gap:8px;
-  background:#f9fafb;
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:8px 12px;
-  margin:8px 0 12px;
+  justify-content:center;
+  z-index:999;
+  padding:16px;
 }
-
-.search-wrap i{
-  font-size:16px;
-  color:var(--muted);
-}
-
-.search-wrap input{
-  border:none;
-  outline:none;
-  background:transparent;
+.modal{
   width:100%;
-  font-size:13px;
-  color:#111827;
+  max-width:420px;
+  background:#fff;
+  border-radius:16px;
+  box-shadow:0 20px 50px rgba(0,0,0,.25);
+  padding:16px;
+}
+.modal h3{
+  margin:0 0 10px;
+  font-size:16px;
+  font-weight:900;
+}
+.actions{
+  display:flex;
+  gap:10px;
+  margin-top:12px;
+  justify-content:flex-end;
+}
+.actions button{
+  padding:10px 14px;
+  border-radius:10px;
+  border:none;
+  font-weight:800;
+  cursor:pointer;
+}
+.actions .ghost{
+  background:#f1f5f9;
+  color:#0f172a;
 }
 
-.search-wrap input::placeholder{
-  color:var(--muted);
+/* 🔒 Garante que nada estoure a largura da tela no celular */
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* 🧩 Tabela sempre se adapta ao tamanho da tela */
+.table-wrap, table {
+  max-width: 100%;
+}
+
+/* 📱 Inputs e selects 100% no mobile */
+@media(max-width: 899px){
+  .filters input,
+  .filters select,
+  .filters button{
+    width: 100%;
+  }
+
+  /* 🔽 Esconde o botão Atualizar no mobile (já é automático) */
+  #btnFiltrar{
+    display:none;
+  }
 }
 </style>
 </head>
@@ -156,13 +193,21 @@ th{
   </div>
 
   <div class="card">
-    <div class="filters">
-      <select id="empresaSelect">
-        <option value="DELÍCIA GOURMET">Delícia Gourmet</option>
-      </select>
-<input type="text" id="rangeDatas" placeholder="Selecione o período">
-      <button id="btnFiltrar">Atualizar</button>
-    </div>
+<div class="filters">
+  <select id="empresaSelect">
+    <option value="DELÍCIA GOURMET">Delícia Gourmet</option>
+  </select>
+
+  <input type="text" id="rangeDatas" placeholder="Selecione o período">
+
+  <!-- 🔎 NOVO -->
+  <input
+    type="text"
+    id="searchPrato"
+    placeholder="Buscar prato..."
+  >
+
+</div>
   </div>
 
   <div class="card">
@@ -173,16 +218,10 @@ th{
   </div>
 
   <div class="card">
-<b>Resumo por prato (Empresa selecionada)</b>
+    <b>Resumo por prato (Empresa selecionada)</b>
 
-<!-- 🔎 Busca discreta -->
-<div class="search-wrap">
-  <i class="ri-search-line"></i>
-  <input type="text" id="searchInput" placeholder="Buscar prato..." />
-</div>
-
-<!-- MOBILE -->
-<div class="list" id="list"></div>
+    <!-- MOBILE -->
+    <div class="list" id="list"></div>
 
 <!-- TABELA (desktop + mobile) -->
 <div class="table">
@@ -214,6 +253,7 @@ const sb = window.supabase.createClient(
 const empresaSelect = document.getElementById("empresaSelect");
 
 const btnFiltrar = document.getElementById("btnFiltrar");
+const searchPrato = document.getElementById("searchPrato");
 const hoje = new Date();
 const seteDiasAtras = new Date(hoje.getTime() - 6*24*60*60*1000);
 
@@ -254,12 +294,15 @@ if(rangeSelecionado.length === 2){
   q = q.lte("data", rangeSelecionado[1]);
 }
 
-  const { data } = await q.order("data",{ascending:true});
+const { data, error } = await q.order("data",{ascending:true});
+if(error){
+  console.error("Erro ao carregar buffet_lancamentos:", error);
+}
 
-  const porPrato = {};
-  const porDia = {};
+const porPrato = {};
+const porDia = {};
 
-  data?.forEach(r=>{
+(data || []).forEach(r=>{
     porPrato[r.produto_nome] ||= {MONTAGEM:0,REPOSICAO:0,RETIRADA:0,DEVOLUCAO:0, UNIDADE:r.unidade};
     porPrato[r.produto_nome][r.tipo] += Number(r.quantidade||0);
 
@@ -268,37 +311,45 @@ if(rangeSelecionado.length === 2){
     }
   });
 
-list.innerHTML = Object.entries(porPrato)
-  .sort((a,b)=> a[0].localeCompare(b[0], 'pt-BR'))
-  .map(([nome,v])=>{
-    const total = v.MONTAGEM + v.REPOSICAO;
-    return `
-      <div class="item">
-        <div class="name">${nome}</div>
-        <div class="row"><span class="badge mont">Montado</span><b>${v.MONTAGEM.toFixed(2)} ${v.UNIDADE}</b></div>
-        <div class="row"><span class="badge rep">Reposto</span><b>${v.REPOSICAO.toFixed(2)} ${v.UNIDADE}</b></div>
-        <div class="row"><span class="badge tot">Total</span><b>${total.toFixed(2)} ${v.UNIDADE}</b></div>
-        <div class="row"><span class="badge ret">Retirado</span><b>${v.RETIRADA.toFixed(2)} ${v.UNIDADE}</b></div>
-        <div class="row"><span class="badge dev">desperdício</span><b>${v.DEVOLUCAO.toFixed(2)} ${v.UNIDADE}</b></div>
-      </div>
-    `;
-  }).join("");
+const termo = (searchPrato.value || "").toLowerCase();
 
-  tbody.innerHTML = Object.entries(porPrato)
-  .sort((a,b)=> a[0].localeCompare(b[0], 'pt-BR'))
-  .map(([nome,v])=>{
-    const total = v.MONTAGEM + v.REPOSICAO;
-    return `
-      <tr>
-        <td><b>${nome}</b></td>
-        <td>${v.MONTAGEM.toFixed(2)} ${v.UNIDADE}</td>
-        <td>${v.REPOSICAO.toFixed(2)} ${v.UNIDADE}</td>
-        <td><b>${total.toFixed(2)} ${v.UNIDADE}</b></td>
-        <td>${v.RETIRADA.toFixed(2)} ${v.UNIDADE}</td>
-        <td>${v.DEVOLUCAO.toFixed(2)} ${v.UNIDADE}</td>
-      </tr>
-    `;
-  }).join("");
+const pratosFiltrados = Object.entries(porPrato)
+  .filter(([nome]) => (nome || "").toLowerCase().includes(termo))
+  .sort((a,b)=> (a[0] || "").localeCompare(b[0] || "", 'pt-BR'));
+
+list.innerHTML = pratosFiltrados.map(([nome,v])=>{
+  const total = v.MONTAGEM + v.REPOSICAO;
+  return `
+    <div class="item">
+      <div class="name">${nome}</div>
+      <div class="row"><span class="badge mont">Montado</span><b>${v.MONTAGEM.toFixed(2)} ${v.UNIDADE}</b></div>
+      <div class="row"><span class="badge rep">Reposto</span><b>${v.REPOSICAO.toFixed(2)} ${v.UNIDADE}</b></div>
+      <div class="row"><span class="badge tot">Total</span><b>${total.toFixed(2)} ${v.UNIDADE}</b></div>
+      <div class="row"><span class="badge ret">Retirado</span><b>${v.RETIRADA.toFixed(2)} ${v.UNIDADE}</b></div>
+      <div class="row"><span class="badge dev">desperdício</span><b>${v.DEVOLUCAO.toFixed(2)} ${v.UNIDADE}</b></div>
+    </div>
+  `;
+}).join("");
+
+tbody.innerHTML = pratosFiltrados.map(([nome,v])=>{
+  const total = v.MONTAGEM + v.REPOSICAO;
+  return `
+    <tr>
+      <td>
+        ${
+          nome === "CONSUMO AUTORIZADO"
+            ? `<b style="cursor:pointer;color:#ff6a00;text-decoration:underline" onclick="abrirResumoConsumo('${nome}')">${nome}</b>`
+            : `<b>${nome}</b>`
+        }
+      </td>
+      <td>${v.MONTAGEM.toFixed(2)} ${v.UNIDADE}</td>
+      <td>${v.REPOSICAO.toFixed(2)} ${v.UNIDADE}</td>
+      <td><b>${total.toFixed(2)} ${v.UNIDADE}</b></td>
+      <td>${v.RETIRADA.toFixed(2)} ${v.UNIDADE}</td>
+      <td>${v.DEVOLUCAO.toFixed(2)} ${v.UNIDADE}</td>
+    </tr>
+  `;
+}).join("");
 
   const dias = Object.keys(porDia).sort();
   const valores = dias.map(d=>porDia[d]);
@@ -337,27 +388,87 @@ chart = new Chart(document.getElementById("chart"), {
 
 
 
-btnFiltrar.onclick = carregar;
-empresaSelect.onchange = carregar;
+// 🔁 Atualiza automaticamente quando mudar empresa
+empresaSelect.onchange = () => {
+  searchPrato.value = "";
+  carregar();
+};
+
+// 🔎 Atualiza enquanto digita o prato
+searchPrato.oninput = carregar;
+
+// 📅 Atualiza quando mudar o período (flatpickr)
+flatpickr("#rangeDatas", {
+  mode: "range",
+  dateFormat: "Y-m-d",
+  altInput: true,
+  altFormat: "d/m/Y",
+  locale: "pt",
+  defaultDate: rangeSelecionado,
+  onChange: (datas) => {
+    if (datas.length === 2) {
+      rangeSelecionado = datas.map(d => d.toISOString().slice(0,10));
+      carregar(); // ✅ atualiza automaticamente ao mudar data
+    }
+  }
+});
 
 carregar();
-const searchInput = document.getElementById("searchInput");
+let modalAberto = false;
 
-searchInput.addEventListener("input", () => {
-  const termo = searchInput.value.toLowerCase();
+async function abrirResumoConsumo(nome){
+  if(nome !== "CONSUMO AUTORIZADO" || modalAberto) return;
+  modalAberto = true;
 
-  // filtra TABELA
-  document.querySelectorAll("#tbody tr").forEach(tr => {
-    const nome = tr.children[0].innerText.toLowerCase();
-    tr.style.display = nome.includes(termo) ? "" : "none";
+  const empresa = empresaSelect.value;
+
+  let q = sb.from("buffet_lancamentos")
+    .select("consumo_para_nome, quantidade")
+    .eq("empresa", empresa)
+    .eq("consumo_autorizado", true);
+
+  if(rangeSelecionado.length === 2){
+    q = q.gte("data", rangeSelecionado[0]);
+    q = q.lte("data", rangeSelecionado[1]);
+  }
+
+  const { data } = await q;
+
+  const porPessoa = {};
+  data?.forEach(r=>{
+    const nome = r.consumo_para_nome || "SEM NOME";
+    porPessoa[nome] = (porPessoa[nome] || 0) + Number(r.quantidade || 0);
   });
 
-  // filtra LISTA MOBILE (se ativar futuramente)
-  document.querySelectorAll("#list .item").forEach(item => {
-    const nome = item.querySelector(".name").innerText.toLowerCase();
-    item.style.display = nome.includes(termo) ? "" : "none";
-  });
-});
+  const html = Object.entries(porPessoa)
+    .sort((a,b)=>b[1]-a[1])
+    .map(([nome,kg])=>`
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee">
+        <b>${nome}</b>
+        <span>${kg.toFixed(3)} KG</span>
+      </div>
+    `).join("");
+
+  document.getElementById("listaResumoConsumo").innerHTML =
+    html || "<small>Nenhum consumo no período.</small>";
+
+document.getElementById("modalResumoConsumo").style.display = "flex";
+document.body.style.overflow = "hidden";}
+
+function fecharResumoConsumo(){
+  document.getElementById("modalResumoConsumo").style.display = "none";
+  document.body.style.overflow = "auto";
+  modalAberto = false;
+}
 </script>
+<!-- MODAL RESUMO CONSUMO AUTORIZADO -->
+<div class="modal-backdrop" id="modalResumoConsumo" onclick="if(event.target===this) fecharResumoConsumo()">  <div class="modal">
+    <h3>📊 Consumo autorizado (KG)</h3>
+    <div id="listaResumoConsumo" style="max-height:60vh;overflow:auto"></div>
+    <div class="actions">
+      <button class="ghost" onclick="fecharResumoConsumo()">Fechar</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
