@@ -114,6 +114,36 @@ th{
   .sub{font-size:12px}
   .chart-wrap{height:200px}
 }
+
+/* 🔎 Barra de busca discreta */
+.search-wrap{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:#f9fafb;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:8px 12px;
+  margin:8px 0 12px;
+}
+
+.search-wrap i{
+  font-size:16px;
+  color:var(--muted);
+}
+
+.search-wrap input{
+  border:none;
+  outline:none;
+  background:transparent;
+  width:100%;
+  font-size:13px;
+  color:#111827;
+}
+
+.search-wrap input::placeholder{
+  color:var(--muted);
+}
 </style>
 </head>
 
@@ -143,10 +173,16 @@ th{
   </div>
 
   <div class="card">
-    <b>Resumo por prato (Empresa selecionada)</b>
+<b>Resumo por prato (Empresa selecionada)</b>
 
-    <!-- MOBILE -->
-    <div class="list" id="list"></div>
+<!-- 🔎 Busca discreta -->
+<div class="search-wrap">
+  <i class="ri-search-line"></i>
+  <input type="text" id="searchInput" placeholder="Buscar prato..." />
+</div>
+
+<!-- MOBILE -->
+<div class="list" id="list"></div>
 
 <!-- TABELA (desktop + mobile) -->
 <div class="table">
@@ -305,6 +341,26 @@ btnFiltrar.onclick = carregar;
 empresaSelect.onchange = carregar;
 
 carregar();
+
+<script>
+const searchInput = document.getElementById("searchInput");
+
+searchInput.addEventListener("input", () => {
+  const termo = searchInput.value.toLowerCase();
+
+  // filtra TABELA
+  document.querySelectorAll("#tbody tr").forEach(tr => {
+    const nome = tr.children[0].innerText.toLowerCase();
+    tr.style.display = nome.includes(termo) ? "" : "none";
+  });
+
+  // filtra LISTA MOBILE (se ativar futuramente)
+  document.querySelectorAll("#list .item").forEach(item => {
+    const nome = item.querySelector(".name").innerText.toLowerCase();
+    item.style.display = nome.includes(termo) ? "" : "none";
+  });
+});
+</script>
 </script>
 </body>
 </html>
