@@ -1,9 +1,9 @@
 const CACHE_NAME = 'grupo-dv-pwa-v1';
 
 const FILES = [
-  './app.html',
+  './index.html',
   './manifest.json',
-  './leo.png'
+  './delicia.png'
 ];
 
 self.addEventListener('install', event => {
