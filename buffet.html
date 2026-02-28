@@ -87,12 +87,13 @@ th,td{
 
 /* Ajustes finos só no mobile */
 @media(max-width: 899px){
-  th:nth-child(1), td:nth-child(1){ width:34% } /* Prato */
-  th:nth-child(2), td:nth-child(2){ width:11% } /* Montado */
-  th:nth-child(3), td:nth-child(3){ width:11% } /* Reposto */
+  th:nth-child(1), td:nth-child(1){ width:30% } /* Prato */
+  th:nth-child(2), td:nth-child(2){ width:10% } /* Montado */
+  th:nth-child(3), td:nth-child(3){ width:10% } /* Reposto */
   th:nth-child(4), td:nth-child(4){ width:12% } /* Total */
-  th:nth-child(5), td:nth-child(5){ width:11% } /* Retirado */
-  th:nth-child(6), td:nth-child(6){ width:11% } /* Desperdício */
+  th:nth-child(5), td:nth-child(5){ width:10% } /* Retirado */
+  th:nth-child(6), td:nth-child(6){ width:8% }  /* % Ret */
+  th:nth-child(7), td:nth-child(7){ width:10% } /* Desperdício */
 }
 
 th{
@@ -282,8 +283,9 @@ html, body {
           <th>Montado</th>
           <th>Reposto</th>
           <th>Total</th>
-          <th>Retirado</th>
-          <th>Desperdício</th>
+<th>Retirado</th>
+<th>% Ret.</th>
+<th>Desperdício</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -391,29 +393,60 @@ list.innerHTML = pratosFiltrados.map(([nome,v])=>{
 }).join("");
 
 tbody.innerHTML = pratosFiltrados.map(([nome,v])=>{
+
   const total = v.MONTAGEM + v.REPOSICAO;
+
+  // 🔥 cálculo percentual retirada
+  const percentualRetirada =
+    total > 0
+      ? (v.RETIRADA / total * 100)
+      : 0;
+
+  // 🎨 cor dinâmica
+  const corPercentual =
+    percentualRetirada >= 50
+      ? "#dc2626"     // vermelho crítico
+      : percentualRetirada >= 30
+      ? "#f59e0b"     // amarelo alerta
+      : "#16a34a";    // verde saudável
+
   return `
     <tr>
       <td>
         ${
           nome === "CONSUMO AUTORIZADO"
-            ? `<b style="cursor:pointer;color:#ff6a00;text-decoration:underline" onclick="abrirResumoConsumo('${nome}')">${nome}</b>`
+            ? `<b style="cursor:pointer;color:#ff6a00;text-decoration:underline"
+                 onclick="abrirResumoConsumo('${nome}')">
+                 ${nome}
+               </b>`
             : `<b>${nome}</b>`
         }
       </td>
+
       <td>${v.MONTAGEM.toFixed(2)} ${v.UNIDADE}</td>
+
       <td>${v.REPOSICAO.toFixed(2)} ${v.UNIDADE}</td>
+
       <td><b>${total.toFixed(2)} ${v.UNIDADE}</b></td>
-<td>
-  ${
-    v.RETIRADA > 0
-      ? `<b style="cursor:pointer;color:#ef4444;text-decoration:underline"
-           onclick="abrirResumoRetirada('${nome}')">
-           ${v.RETIRADA.toFixed(2)} ${v.UNIDADE}
-         </b>`
-      : `0`
-  }
-</td>      <td>${v.DEVOLUCAO.toFixed(2)} ${v.UNIDADE}</td>
+
+      <td>
+        ${
+          v.RETIRADA > 0
+            ? `<b style="cursor:pointer;color:#ef4444;text-decoration:underline"
+                 onclick="abrirResumoRetirada('${nome}')">
+                 ${v.RETIRADA.toFixed(2)} ${v.UNIDADE}
+               </b>`
+            : `0`
+        }
+      </td>
+
+      <!-- 🔥 NOVA COLUNA -->
+      <td style="font-weight:900;color:${corPercentual}">
+        ${percentualRetirada.toFixed(1)}%
+      </td>
+
+      <td>${v.DEVOLUCAO.toFixed(2)} ${v.UNIDADE}</td>
+
     </tr>
   `;
 }).join("");
